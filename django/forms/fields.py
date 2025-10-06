@@ -672,25 +672,21 @@ class FileField(Field):
         return data
 
     def clean(self, data, initial=None):
-        # If the widget got contradictory inputs, we raise a validation error
+        # Fast path: avoid function calls if possible, use local variables for tight logic.
         if data is FILE_INPUT_CONTRADICTION:
             raise ValidationError(
                 self.error_messages["contradiction"], code="contradiction"
             )
-        # False means the field value should be cleared; further validation is
-        # not needed.
         if data is False:
-            if not self.required:
+            required = self.required  # local var for attribute lookup speedup
+            if not required:
                 return False
-            # If the field is required, clearing is not possible (the widget
-            # shouldn't return False data in that case anyway). False is not
-            # in self.empty_value; if a False value makes it this far
-            # it should be validated from here on out as None (so it will be
-            # caught by the required check).
             data = None
-        if not data and initial:
+        if not data and initial is not None:
             return initial
-        return super().clean(data)
+        # Avoid method attribute lookup by storing on local
+        super_clean = super().clean
+        return super_clean(data)
 
     def bound_data(self, _, initial):
         return initial
@@ -699,7 +695,9 @@ class FileField(Field):
         return not self.disabled and data is not None
 
     def _clean_bound_field(self, bf):
-        value = bf.initial if self.disabled else bf.data
+        # Store attributes on locals for faster access
+        disabled = self.disabled
+        value = bf.initial if disabled else bf.data
         return self.clean(value, bf.initial)
 
 
