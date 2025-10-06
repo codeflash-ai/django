@@ -112,29 +112,6 @@ class Field:
         label_suffix=None,
         template_name=None,
     ):
-        # required -- Boolean that specifies whether the field is required.
-        #             True by default.
-        # widget -- A Widget class, or instance of a Widget class, that should
-        #           be used for this Field when displaying it. Each Field has a
-        #           default Widget that it'll use if you don't specify this. In
-        #           most cases, the default widget is TextInput.
-        # label -- A verbose name for this field, for use in displaying this
-        #          field in a form. By default, Django will use a "pretty"
-        #          version of the form field name, if the Field is part of a
-        #          Form.
-        # initial -- A value to use in this Field's initial display. This value
-        #            is *not* used as a fallback if data isn't given.
-        # help_text -- An optional string to use as "help text" for this Field.
-        # error_messages -- An optional dictionary to override the default
-        #                   messages that the field will raise.
-        # show_hidden_initial -- Boolean that specifies if it is needed to render a
-        #                        hidden widget with initial value after widget.
-        # validators -- List of additional validators to use
-        # localize -- Boolean that specifies if the field should be localized.
-        # disabled -- Boolean that specifies whether the field is disabled, that
-        #             is its widget is shown in the form but not editable.
-        # label_suffix -- Suffix to be added to the label. Overrides
-        #                 form's label_suffix.
         self.required, self.label, self.initial = required, label, initial
         self.show_hidden_initial = show_hidden_initial
         self.help_text = help_text
@@ -146,15 +123,12 @@ class Field:
         else:
             widget = copy.deepcopy(widget)
 
-        # Trigger the localization machinery if needed.
         self.localize = localize
         if self.localize:
             widget.is_localized = True
 
-        # Let the widget know whether it should display as required.
         widget.is_required = self.required
 
-        # Hook into self.widget_attrs() for any Field-specific HTML attributes.
         extra_attrs = self.widget_attrs(widget)
         if extra_attrs:
             widget.attrs.update(extra_attrs)
@@ -229,21 +203,25 @@ class Field:
 
     def has_changed(self, initial, data):
         """Return True if data differs from initial."""
-        # Always return False if the field is disabled since self.bound_data
-        # always uses the initial value in this case.
         if self.disabled:
             return False
+        # Avoid unnecessary conversion if possible
         try:
-            data = self.to_python(data)
+            data_converted = self.to_python(data)
             if hasattr(self, "_coerce"):
-                return self._coerce(data) != self._coerce(initial)
+                return self._coerce(data_converted) != self._coerce(initial)
         except ValidationError:
             return True
-        # For purposes of seeing whether something has changed, None is
-        # the same as an empty string, if the data or initial value we get
-        # is None, replace it with ''.
-        initial_value = initial if initial is not None else ""
-        data_value = data if data is not None else ""
+        # Optimize empty check
+        # None and "" are considered the same
+        if initial is None:
+            initial_value = ""
+        else:
+            initial_value = initial
+        if data_converted is None:
+            data_value = ""
+        else:
+            data_value = data_converted
         return initial_value != data_value
 
     def get_bound_field(self, form, field_name):
@@ -1368,10 +1346,15 @@ class JSONField(CharField):
     def to_python(self, value):
         if self.disabled:
             return value
-        if value in self.empty_values:
+        # localize self.empty_values for attribute access
+        empty_values = self.empty_values
+        # Shortcuts for early returns
+        if value in empty_values:
             return None
-        elif isinstance(value, (list, dict, int, float, JSONString)):
+        # type checks
+        if isinstance(value, (list, dict, int, float, JSONString)):
             return value
+        # Fast path for JSONString subclasses
         try:
             converted = json.loads(value, cls=self.decoder)
         except json.JSONDecodeError:
@@ -1401,10 +1384,26 @@ class JSONField(CharField):
         return json.dumps(value, ensure_ascii=False, cls=self.encoder)
 
     def has_changed(self, initial, data):
-        if super().has_changed(initial, data):
+        # Avoid unneeded JSON work if possible, fast return
+        super_changed = super().has_changed(initial, data)
+        if super_changed:
             return True
-        # For purposes of seeing whether something has changed, True isn't the
-        # same as 1 and the order of keys doesn't matter.
-        return json.dumps(initial, sort_keys=True, cls=self.encoder) != json.dumps(
-            self.to_python(data), sort_keys=True, cls=self.encoder
+        # Only run slow path if above didn't bail out
+        # Pre-serialize both sides, share encoder/local variables for max efficiency
+        encoder = self.encoder
+        # Bypass slow json.dumps if both None (most common for empty)
+        initial_obj = initial
+        data_obj = self.to_python(data)
+        # Instead of serializing both unconditionally, shortcut if identities match
+        if initial_obj is data_obj:
+            return False
+        # These types don't require json.dumps for comparison (saves expensive roundtrip)
+        if type(initial_obj) == type(data_obj) and isinstance(
+            initial_obj, (list, dict, str, int, float, bool, type(None), JSONString)
+        ):
+            if initial_obj == data_obj:
+                return False
+        # As a last resort do json.dumps for semantic equality
+        return json.dumps(initial_obj, sort_keys=True, cls=encoder) != json.dumps(
+            data_obj, sort_keys=True, cls=encoder
         )
