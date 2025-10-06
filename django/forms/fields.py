@@ -275,19 +275,22 @@ class CharField(Field):
         self.strip = strip
         self.empty_value = empty_value
         super().__init__(**kwargs)
+        # Use local variable for validators list to avoid repeated attribute lookups
+        vals = self.validators
         if min_length is not None:
-            self.validators.append(validators.MinLengthValidator(int(min_length)))
+            vals.append(validators.MinLengthValidator(int(min_length)))
         if max_length is not None:
-            self.validators.append(validators.MaxLengthValidator(int(max_length)))
-        self.validators.append(validators.ProhibitNullCharactersValidator())
+            vals.append(validators.MaxLengthValidator(int(max_length)))
+        vals.append(validators.ProhibitNullCharactersValidator())
 
     def to_python(self, value):
         """Return a string."""
-        if value not in self.empty_values:
+        empty_values = self.empty_values  # Localize lookup for perf.
+        if value not in empty_values:
             value = str(value)
             if self.strip:
                 value = value.strip()
-        if value in self.empty_values:
+        if value in empty_values:
             return self.empty_value
         return value
 
