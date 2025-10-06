@@ -275,11 +275,12 @@ class CharField(Field):
         self.strip = strip
         self.empty_value = empty_value
         super().__init__(**kwargs)
+        append = self.validators.append  # minor local var lookup speedup
         if min_length is not None:
-            self.validators.append(validators.MinLengthValidator(int(min_length)))
+            append(validators.MinLengthValidator(int(min_length)))
         if max_length is not None:
-            self.validators.append(validators.MaxLengthValidator(int(max_length)))
-        self.validators.append(validators.ProhibitNullCharactersValidator())
+            append(validators.MaxLengthValidator(int(max_length)))
+        append(validators.ProhibitNullCharactersValidator())
 
     def to_python(self, value):
         """Return a string."""
@@ -784,40 +785,36 @@ class URLField(CharField):
                     stacklevel=2,
                 )
                 assume_scheme = "http"
-        # RemovedInDjango60Warning: When the deprecation ends, replace with:
-        # self.assume_scheme = assume_scheme or "https"
         self.assume_scheme = assume_scheme
         super().__init__(strip=True, **kwargs)
 
     def to_python(self, value):
-        def split_url(url):
-            """
-            Return a list of url parts via urlparse.urlsplit(), or raise
-            ValidationError for some malformed URLs.
-            """
+        value = super().to_python(value)
+        if not value:
+            return value
+
+        # Inline and optimize the split_url logic (faster, avoid function call and redundant code)
+        try:
+            url_fields = list(urlsplit(value))
+        except ValueError:
+            raise ValidationError(self.error_messages["invalid"], code="invalid")
+
+        if not url_fields[0]:
+            # If no URL scheme given, add a scheme.
+            url_fields[0] = self.assume_scheme
+
+        if not url_fields[1]:
+            # Assume that if no domain is provided, that the path segment
+            # contains the domain.
+            url_fields[1] = url_fields[2]
+            url_fields[2] = ""
+            # Re-try splitting in a single try-except to avoid repeated code
             try:
-                return list(urlsplit(url))
+                url_fields = list(urlsplit(urlunsplit(url_fields)))
             except ValueError:
-                # urlparse.urlsplit can raise a ValueError with some
-                # misformatted URLs.
                 raise ValidationError(self.error_messages["invalid"], code="invalid")
 
-        value = super().to_python(value)
-        if value:
-            url_fields = split_url(value)
-            if not url_fields[0]:
-                # If no URL scheme given, add a scheme.
-                url_fields[0] = self.assume_scheme
-            if not url_fields[1]:
-                # Assume that if no domain is provided, that the path segment
-                # contains the domain.
-                url_fields[1] = url_fields[2]
-                url_fields[2] = ""
-                # Rebuild the url_fields list, since the domain segment may now
-                # contain the path too.
-                url_fields = split_url(urlunsplit(url_fields))
-            value = urlunsplit(url_fields)
-        return value
+        return urlunsplit(url_fields)
 
 
 class BooleanField(Field):
