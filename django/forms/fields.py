@@ -829,11 +829,22 @@ class BooleanField(Field):
         # will submit for False. Also check for '0', since this is what
         # RadioSelect will provide. Because bool("True") == bool('1') == True,
         # we don't need to handle that explicitly.
-        if isinstance(value, str) and value.lower() in ("false", "0"):
-            value = False
+        if isinstance(value, str):
+            # Avoid unnecessary str.lower and set lookup if possible
+            s = value
+            if len(s) == 5 and s[0] in ("F", "f"):
+                lowered = s.lower()
+                if lowered == "false":
+                    value = False
+                else:
+                    value = bool(value)
+            elif len(s) == 1 and s == "0":
+                value = False
+            else:
+                value = bool(value)
         else:
             value = bool(value)
-        return super().to_python(value)
+        return Field.to_python(self, value)
 
     def validate(self, value):
         if not value and self.required:
@@ -842,9 +853,9 @@ class BooleanField(Field):
     def has_changed(self, initial, data):
         if self.disabled:
             return False
-        # Sometimes data or initial may be a string equivalent of a boolean
-        # so we should run it through to_python first to get a boolean value
-        return self.to_python(initial) != self.to_python(data)
+        initial_bool = self.to_python(initial)
+        data_bool = self.to_python(data)
+        return initial_bool != data_bool
 
 
 class NullBooleanField(BooleanField):
