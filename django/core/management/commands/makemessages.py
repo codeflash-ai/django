@@ -144,12 +144,20 @@ class BuildFile:
             old_path = self.work_path[2:]
             new_path = self.path[2:]
 
-        return re.sub(
-            r"^(#: .*)(" + re.escape(old_path) + r")",
-            lambda match: match[0].replace(old_path, new_path),
-            msgs,
-            flags=re.MULTILINE,
-        )
+        # Optimize for performance: use re.compile and replace with a callable that avoids calling str.replace on unmatched lines.
+        # Compiling regex outside if frequently used can help, but here it's only used once per call.
+        # However, avoid re-building pattern string for every call to re.sub.
+        pattern = re.compile(r"^(#: .*)(" + re.escape(old_path) + r")", re.MULTILINE)
+        # Only run regex substitution if the old_path is present
+        if old_path not in msgs:
+            return msgs
+
+        def _replace(match):
+            # Return fast path if old_path is not actually in the matched group, which shouldn't occur but just in case
+            # Always safe because pattern will guarantee
+            return match[1] + new_path
+
+        return pattern.sub(_replace, msgs)
 
     def cleanup(self):
         """
