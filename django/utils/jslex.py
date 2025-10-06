@@ -26,7 +26,21 @@ def literals(choices, prefix="", suffix=""):
     If provided, `prefix` and `suffix` will be attached to each choice
     individually.
     """
-    return "|".join(prefix + re.escape(c) + suffix for c in choices.split())
+    split_choices = choices.split()
+    if not prefix and not suffix and len(split_choices) == 1:
+        # Fast path: only one choice, no prefix/suffix
+        return re.escape(split_choices[0])
+    parts = []
+    append = parts.append
+    esc = re.escape
+    if not prefix and not suffix:
+        # No prefix/suffix: escape all, join
+        for c in split_choices:
+            append(esc(c))
+    else:
+        for c in split_choices:
+            append(f"{prefix}{esc(c)}{suffix}")
+    return "|".join(parts)
 
 
 class Lexer:
