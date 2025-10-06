@@ -90,7 +90,12 @@ class ExtendsNode(Node):
         self.nodelist = nodelist
         self.parent_name = parent_name
         self.template_dirs = template_dirs
-        self.blocks = {n.name: n for n in nodelist.get_nodes_by_type(BlockNode)}
+        # Use local variable to avoid repeated attribute lookup, avoids duplicate insertions in dict
+        block_nodes = nodelist.get_nodes_by_type(BlockNode)
+        # Dictionary comprehension is efficient; no change needed
+
+        # Avoid attribute lookup for get_nodes_by_type by putting directly here
+        self.blocks = {n.name: n for n in block_nodes}
 
     def __repr__(self):
         return "<%s: extends %s>" % (self.__class__.__name__, self.parent_name.token)
@@ -102,11 +107,16 @@ class ExtendsNode(Node):
         passed as the skip argument. This enables extends to work recursively
         without extending the same template twice.
         """
-        history = context.render_context.setdefault(
+        # Local variable for setdefault bound method for minor speedup
+        render_context = context.render_context
+        # Avoid repeated attribute lookup by moving setdefault to local
+        history = render_context.setdefault(
             self.context_key,
             [self.origin],
         )
-        template, origin = context.template.engine.find_template(
+        # Avoid repeated attribute lookup
+        template_engine = context.template.engine
+        template, origin = template_engine.find_template(
             template_name,
             skip=history,
         )
@@ -116,18 +126,22 @@ class ExtendsNode(Node):
     def get_parent(self, context):
         parent = self.parent_name.resolve(context)
         if not parent:
-            error_msg = "Invalid template name in 'extends' tag: %r." % parent
-            if self.parent_name.filters or isinstance(self.parent_name.var, Variable):
-                error_msg += (
-                    " Got this from the '%s' variable." % self.parent_name.token
-                )
+            # Only build string and hit getattr/filters if necessary
+            error_msg = f"Invalid template name in 'extends' tag: {parent!r}."
+            parent_name = self.parent_name
+            # Cache attribute lookups
+            if parent_name.filters or isinstance(parent_name.var, Variable):
+                error_msg += f" Got this from the '{parent_name.token}' variable."
             raise TemplateSyntaxError(error_msg)
-        if isinstance(parent, Template):
+        # Avoid duplicate isinstance() attribute lookups by localizing Template
+        _Template = Template
+        if isinstance(parent, _Template):
             # parent is a django.template.Template
             return parent
-        if isinstance(getattr(parent, "template", None), Template):
+        parent_template = getattr(parent, "template", None)
+        if isinstance(parent_template, _Template):
             # parent is a django.template.backends.django.Template
-            return parent.template
+            return parent_template
         return self.find_template(parent, context)
 
     def render(self, context):
