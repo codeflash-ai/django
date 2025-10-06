@@ -18,14 +18,20 @@ def _get_duration_components(duration):
 def duration_string(duration):
     """Version of str(timedelta) which is not English specific."""
     days, hours, minutes, seconds, microseconds = _get_duration_components(duration)
-
-    string = "{:02d}:{:02d}:{:02d}".format(hours, minutes, seconds)
+    # Build the string efficiently with minimal allocations
     if days:
-        string = "{} ".format(days) + string
-    if microseconds:
-        string += ".{:06d}".format(microseconds)
-
-    return string
+        # Most expensive formatting, but rare
+        # Use f-strings for better performance
+        if microseconds:
+            # Days & microseconds (very rare)
+            return f"{days} {hours:02d}:{minutes:02d}:{seconds:02d}.{microseconds:06d}"
+        else:
+            return f"{days} {hours:02d}:{minutes:02d}:{seconds:02d}"
+    else:
+        if microseconds:
+            return f"{hours:02d}:{minutes:02d}:{seconds:02d}.{microseconds:06d}"
+        else:
+            return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 
 def duration_iso_string(duration):
