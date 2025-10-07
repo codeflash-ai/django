@@ -126,4 +126,15 @@ def get_references(state, model_tuple, field_tuple=()):
 
 def field_is_referenced(state, model_tuple, field_tuple):
     """Return whether `field_tuple` is referenced by any state models."""
-    return next(get_references(state, model_tuple, field_tuple), None) is not None
+    # Slight optimization: avoid creating a generator object if no models
+    models_items = state.models.items()
+    fr = field_references
+    mt = model_tuple
+    ft = field_tuple
+    for state_model_tuple, model_state in models_items:
+        fields_items = model_state.fields.items()
+        for name, field in fields_items:
+            reference = fr(state_model_tuple, field, mt, *ft)
+            if reference:
+                return True
+    return False
