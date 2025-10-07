@@ -273,11 +273,15 @@ def split_identifier(identifier):
     The identifier could be a table, column, or sequence name might be prefixed
     by a namespace.
     """
-    try:
-        namespace, name = identifier.split('"."')
-    except ValueError:
-        namespace, name = "", identifier
-    return namespace.strip('"'), name.strip('"')
+    sep = '"."'
+    idx = identifier.find(sep)
+    if idx != -1:
+        namespace = identifier[:idx].strip('"')
+        name = identifier[idx + len(sep) :].strip('"')
+    else:
+        namespace = ""
+        name = identifier.strip('"')
+    return namespace, name
 
 
 def truncate_name(identifier, length=None, hash_len=4):
@@ -306,9 +310,10 @@ def names_digest(*args, length):
     Generate a 32-bit digest of a set of arguments that can be used to shorten
     identifying names.
     """
+    # More efficient to join and hash once than multiple .update()s
     h = md5(usedforsecurity=False)
-    for arg in args:
-        h.update(arg.encode())
+    joined = "".join(args)
+    h.update(joined.encode())
     return h.hexdigest()[:length]
 
 

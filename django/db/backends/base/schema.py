@@ -29,11 +29,15 @@ def _is_relevant_relation(relation, altered_field):
     if field.many_to_many:
         # M2M reverse field
         return False
-    if altered_field.primary_key and field.to_fields == [None]:
+    to_fields = field.to_fields
+    if altered_field.primary_key and to_fields == [None]:
         # Foreign key constraint on the primary key, which is being altered.
         return True
     # Is the constraint targeting the field being altered?
-    return altered_field.name in field.to_fields
+    # Use a tuple for 'to_fields' if it's large for faster "in" checks, otherwise leave as list (common case: list of one or a few items)
+    if len(to_fields) > 4:
+        return altered_field.name in tuple(to_fields)
+    return altered_field.name in to_fields
 
 
 def _all_related_fields(model):
@@ -1465,28 +1469,28 @@ class BaseDatabaseSchemaEditor:
         and a unique digest and suffix.
         """
         _, table_name = split_identifier(table_name)
-        hash_suffix_part = "%s%s" % (
-            names_digest(table_name, *column_names, length=8),
-            suffix,
-        )
+        columns_joined = "_".join(column_names)
+        hash_digest = names_digest(table_name, *column_names, length=8)
+        hash_suffix_part = f"{hash_digest}{suffix}"
         max_length = self.connection.ops.max_name_length() or 200
-        # If everything fits into max_length, use that name.
-        index_name = "%s_%s_%s" % (table_name, "_".join(column_names), hash_suffix_part)
+
+        index_name = f"{table_name}_{columns_joined}_{hash_suffix_part}"
         if len(index_name) <= max_length:
             return index_name
+
         # Shorten a long suffix.
-        if len(hash_suffix_part) > max_length / 3:
+        if len(hash_suffix_part) > max_length // 3:
             hash_suffix_part = hash_suffix_part[: max_length // 3]
+
         other_length = (max_length - len(hash_suffix_part)) // 2 - 1
-        index_name = "%s_%s_%s" % (
-            table_name[:other_length],
-            "_".join(column_names)[:other_length],
-            hash_suffix_part,
-        )
+        table_short = table_name[:other_length]
+        columns_short = columns_joined[:other_length]
+        index_name = f"{table_short}_{columns_short}_{hash_suffix_part}"
+
         # Prepend D if needed to prevent the name from starting with an
         # underscore or a number (not permitted on Oracle).
-        if index_name[0] == "_" or index_name[0].isdigit():
-            index_name = "D%s" % index_name[:-1]
+        if index_name and (index_name[0] == "_" or index_name[0].isdigit()):
+            index_name = "D" + index_name[:-1]
         return index_name
 
     def _get_index_tablespace_sql(self, model, fields, db_tablespace=None):
