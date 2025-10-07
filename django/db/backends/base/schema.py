@@ -16,6 +16,7 @@ from django.db.models import NOT_PROVIDED, Deferrable, Index
 from django.db.models.sql import Query
 from django.db.transaction import TransactionManagementError, atomic
 from django.utils import timezone
+from django.db.models.expressions import Value
 
 logger = logging.getLogger("django.db.backends.schema")
 
@@ -29,11 +30,15 @@ def _is_relevant_relation(relation, altered_field):
     if field.many_to_many:
         # M2M reverse field
         return False
-    if altered_field.primary_key and field.to_fields == [None]:
+    to_fields = field.to_fields
+    if altered_field.primary_key and to_fields == [None]:
         # Foreign key constraint on the primary key, which is being altered.
         return True
     # Is the constraint targeting the field being altered?
-    return altered_field.name in field.to_fields
+    # Use a tuple for 'to_fields' if it's large for faster "in" checks, otherwise leave as list (common case: list of one or a few items)
+    if len(to_fields) > 4:
+        return altered_field.name in tuple(to_fields)
+    return altered_field.name in to_fields
 
 
 def _all_related_fields(model):
@@ -410,12 +415,9 @@ class BaseDatabaseSchemaEditor:
 
     def db_default_sql(self, field):
         """Return the sql and params for the field's database default."""
-        from django.db.models.expressions import Value
-
         db_default = field._db_default_expression
-        sql = (
-            self._column_default_sql(field) if isinstance(db_default, Value) else "(%s)"
-        )
+        is_value = isinstance(db_default, Value)
+        sql = self._column_default_sql(field) if is_value else "(%s)"
         query = Query(model=field.model)
         compiler = query.get_compiler(connection=self.connection)
         default_sql, params = compiler.compile(db_default)
@@ -423,7 +425,7 @@ class BaseDatabaseSchemaEditor:
             # Some databases doesn't support parameterized defaults (Oracle,
             # SQLite). If this is the case, the individual schema backend
             # should implement prepare_default().
-            default_sql %= tuple(self.prepare_default(p) for p in params)
+            default_sql %= [self.prepare_default(p) for p in params]
             params = []
         return sql % default_sql, params
 
