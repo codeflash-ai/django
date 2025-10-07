@@ -194,18 +194,21 @@ class DeferredAttribute:
             return self
         data = instance.__dict__
         field_name = self.field.attname
-        if field_name not in data:
-            # Let's see if the field is part of the parent chain. If so we
-            # might be able to reuse the already loaded value. Refs #18343.
-            val = self._check_parent_chain(instance)
-            if val is None:
-                if instance.pk is None and self.field.generated:
-                    raise AttributeError(
-                        "Cannot read a generated field from an unsaved model."
-                    )
-                instance.refresh_from_db(fields=[field_name])
-            else:
-                data[field_name] = val
+        if field_name in data:
+            return data[field_name]
+
+        # Let's see if the field is part of the parent chain. If so we
+        # might be able to reuse the already loaded value. Refs #18343.
+        opts = instance._meta
+        link_field = opts.get_ancestor_link(self.field.model)
+        if self.field.primary_key and self.field != link_field:
+            val = getattr(instance, link_field.attname)
+            data[field_name] = val
+            return val
+
+        if instance.pk is None and self.field.generated:
+            raise AttributeError("Cannot read a generated field from an unsaved model.")
+        instance.refresh_from_db(fields=[field_name])
         return data[field_name]
 
     def _check_parent_chain(self, instance):
