@@ -29,11 +29,15 @@ def _is_relevant_relation(relation, altered_field):
     if field.many_to_many:
         # M2M reverse field
         return False
-    if altered_field.primary_key and field.to_fields == [None]:
+    to_fields = field.to_fields
+    if altered_field.primary_key and to_fields == [None]:
         # Foreign key constraint on the primary key, which is being altered.
         return True
     # Is the constraint targeting the field being altered?
-    return altered_field.name in field.to_fields
+    # Use a tuple for 'to_fields' if it's large for faster "in" checks, otherwise leave as list (common case: list of one or a few items)
+    if len(to_fields) > 4:
+        return altered_field.name in tuple(to_fields)
+    return altered_field.name in to_fields
 
 
 def _all_related_fields(model):
@@ -150,6 +154,10 @@ class BaseDatabaseSchemaEditor:
         if self.collect_sql:
             self.collected_sql = []
         self.atomic_migration = self.connection.features.can_rollback_ddl and atomic
+        # Cache references to frequently accessed format strings and quote_name method
+        self._sql_constraint = getattr(self, "sql_constraint", None)
+        self._sql_check_constraint = getattr(self, "sql_check_constraint", None)
+        self._quote_name = self.connection.ops.quote_name
 
     # State-managing methods
 
@@ -201,7 +209,8 @@ class BaseDatabaseSchemaEditor:
                 cursor.execute(sql, params)
 
     def quote_name(self, name):
-        return self.connection.ops.quote_name(name)
+        # Directly access cached quote_name reference
+        return self._quote_name(name)
 
     def table_sql(self, model):
         """Take a model and return its table definition."""
@@ -1888,9 +1897,15 @@ class BaseDatabaseSchemaEditor:
         return self._delete_constraint_sql(sql, model, name)
 
     def _check_sql(self, name, check):
-        return self.sql_constraint % {
-            "name": self.quote_name(name),
-            "constraint": self.sql_check_constraint % {"check": check},
+        # Store local references to speed up lookups in tight loop
+        sql_constraint = self._sql_constraint
+        sql_check_constraint = self._sql_check_constraint
+        quote_name = self._quote_name
+        # Avoid repeated attribute lookups and method indirection
+        check_constraint_str = sql_check_constraint % {"check": check}
+        return sql_constraint % {
+            "name": quote_name(name),
+            "constraint": check_constraint_str,
         }
 
     def _create_check_sql(self, model, name, check):
