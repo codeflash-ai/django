@@ -29,11 +29,15 @@ def _is_relevant_relation(relation, altered_field):
     if field.many_to_many:
         # M2M reverse field
         return False
-    if altered_field.primary_key and field.to_fields == [None]:
+    to_fields = field.to_fields
+    if altered_field.primary_key and to_fields == [None]:
         # Foreign key constraint on the primary key, which is being altered.
         return True
     # Is the constraint targeting the field being altered?
-    return altered_field.name in field.to_fields
+    # Use a tuple for 'to_fields' if it's large for faster "in" checks, otherwise leave as list (common case: list of one or a few items)
+    if len(to_fields) > 4:
+        return altered_field.name in tuple(to_fields)
+    return altered_field.name in to_fields
 
 
 def _all_related_fields(model):
@@ -150,6 +154,8 @@ class BaseDatabaseSchemaEditor:
         if self.collect_sql:
             self.collected_sql = []
         self.atomic_migration = self.connection.features.can_rollback_ddl and atomic
+        # Cache quote_name function for improved performance in _delete_index_sql
+        self._quote_name = self.connection.ops.quote_name
 
     # State-managing methods
 
@@ -201,7 +207,8 @@ class BaseDatabaseSchemaEditor:
                 cursor.execute(sql, params)
 
     def quote_name(self, name):
-        return self.connection.ops.quote_name(name)
+        # Delegated for external calls and compatibility, not used internally for batch operations
+        return self._quote_name(name)
 
     def table_sql(self, model):
         """Take a model and return its table definition."""
@@ -1569,10 +1576,12 @@ class BaseDatabaseSchemaEditor:
         )
 
     def _delete_index_sql(self, model, name, sql=None):
+        # Optimize by using direct method reference; avoids attribute lookup
+        quote_name = self._quote_name
         return Statement(
             sql or self.sql_delete_index,
-            table=Table(model._meta.db_table, self.quote_name),
-            name=self.quote_name(name),
+            table=Table(model._meta.db_table, quote_name),
+            name=quote_name(name),
         )
 
     def _rename_index_sql(self, model, old_name, new_name):
