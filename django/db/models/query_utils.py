@@ -400,25 +400,40 @@ def check_rel_lookup_compatibility(model, target_opts, field):
       2) model is parent of opts' model or the other way around
     """
 
-    def check(opts):
-        return (
-            model._meta.concrete_model == opts.concrete_model
-            or opts.concrete_model in model._meta.all_parents
-            or model in opts.all_parents
-        )
+    model_meta = model._meta
+    model_concrete = model_meta.concrete_model
+    model_all_parents = model_meta.all_parents
 
-    # If the field is a primary key, then doing a query against the field's
-    # model is ok, too. Consider the case:
-    # class Restaurant(models.Model):
-    #     place = OneToOneField(Place, primary_key=True):
-    # Restaurant.objects.filter(pk__in=Restaurant.objects.all()).
-    # If we didn't have the primary key check, then pk__in (== place__in) would
-    # give Place's opts as the target opts, but Restaurant isn't compatible
-    # with that. This logic applies only to primary keys, as when doing __in=qs,
-    # we are going to turn this into __in=qs.values('pk') later on.
-    return check(target_opts) or (
-        getattr(field, "primary_key", False) and check(field.model._meta)
-    )
+    target_concrete = target_opts.concrete_model
+    target_all_parents = target_opts.all_parents
+
+    # Use local variable for the model for attribute access speedup
+    local_model = model  # purely for attribute reference cache
+
+    # Manually inline logic for compatibility checking
+    # Avoid function call overhead and repeated lookups for the small check set
+    if (
+        model_concrete == target_concrete
+        or target_concrete in model_all_parents
+        or local_model in target_all_parents
+    ):
+        return True
+
+    # Use fast inline hasattr+getattr shortcut for the common case
+    # This is identical to getattr(field, "primary_key", False), but avoids function call
+    # and attribute chain for the common case (the attribute is present most of the time in Django ORM)
+    if hasattr(field, "primary_key") and field.primary_key:
+        field_model_meta = field.model._meta
+        f_concrete = field_model_meta.concrete_model
+        f_all_parents = field_model_meta.all_parents
+        if (
+            model_concrete == f_concrete
+            or f_concrete in model_all_parents
+            or local_model in f_all_parents
+        ):
+            return True
+
+    return False
 
 
 class FilteredRelation:
