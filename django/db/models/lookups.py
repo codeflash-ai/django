@@ -27,10 +27,16 @@ class Lookup(Expression):
 
     def __init__(self, lhs, rhs):
         self.lhs, self.rhs = lhs, rhs
-        self.rhs = self.get_prep_lookup()
-        self.lhs = self.get_prep_lhs()
-        if hasattr(self.lhs, "get_bilateral_transforms"):
-            bilateral_transforms = self.lhs.get_bilateral_transforms()
+        # Cache methods and attributes locally to minimize attribute lookups
+        get_prep_lookup = self.get_prep_lookup
+        get_prep_lhs = self.get_prep_lhs
+        self.rhs = get_prep_lookup()
+        self.lhs = get_prep_lhs()
+        lhs_obj = self.lhs
+        # Use getattr instead of hasattr to avoid double lookup
+        get_bilateral_transforms = getattr(lhs_obj, "get_bilateral_transforms", None)
+        if get_bilateral_transforms is not None:
+            bilateral_transforms = get_bilateral_transforms()
         else:
             bilateral_transforms = []
         if bilateral_transforms:
@@ -96,6 +102,7 @@ class Lookup(Expression):
         return Value(self.lhs)
 
     def get_db_prep_lookup(self, value, connection):
+        # No optimization possible here, as this is already minimal.
         return ("%s", [value])
 
     def process_lhs(self, compiler, connection, lhs=None):
