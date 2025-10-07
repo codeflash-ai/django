@@ -5,6 +5,8 @@ from django.db.transaction import atomic
 
 from .exceptions import IrreversibleError
 
+_nonword_re = re.compile(r"\W+")
+
 
 class Migration:
     """
@@ -203,15 +205,22 @@ class Migration:
         are not guaranteed to be unique, but put some effort into the fallback
         name to avoid VCS conflicts if possible.
         """
-        if self.initial:
+        initial = getattr(self, "initial", None)
+        if initial:
             return "initial"
 
-        raw_fragments = [op.migration_name_fragment for op in self.operations]
-        fragments = [re.sub(r"\W+", "_", name) for name in raw_fragments if name]
+        operations = self.operations
+        # Use local reference for the precompiled regex
+        _re = _nonword_re
 
-        if not fragments or len(fragments) != len(self.operations):
+        # Build migration fragment list efficiently
+        raw_fragments = [op.migration_name_fragment for op in operations]
+        fragments = [_re.sub("_", name) for name in raw_fragments if name]
+
+        if not fragments or len(fragments) != len(operations):
             return "auto_%s" % get_migration_name_timestamp()
 
+        # Compose the name with length check
         name = fragments[0]
         for fragment in fragments[1:]:
             new_name = f"{name}_{fragment}"
