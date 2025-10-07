@@ -49,8 +49,10 @@ class Q(tree.Node):
     conditional = True
 
     def __init__(self, *args, _connector=None, _negated=False, **kwargs):
+        from itertools import chain
+
         super().__init__(
-            children=[*args, *sorted(kwargs.items())],
+            children=list(chain(args, sorted(kwargs.items()))),
             connector=_connector,
             negated=_negated,
         )
