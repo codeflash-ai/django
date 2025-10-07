@@ -9,13 +9,17 @@ from .client import DatabaseClient
 
 class DatabaseCreation(BaseDatabaseCreation):
     def sql_table_creation_suffix(self):
-        suffix = []
         test_settings = self.connection.settings_dict["TEST"]
-        if test_settings["CHARSET"]:
-            suffix.append("CHARACTER SET %s" % test_settings["CHARSET"])
-        if test_settings["COLLATION"]:
-            suffix.append("COLLATE %s" % test_settings["COLLATION"])
-        return " ".join(suffix)
+        charset = test_settings["CHARSET"]
+        collation = test_settings["COLLATION"]
+        # Micro-optimized: use tuple and f-strings to avoid unnecessary list and % formatting
+        if charset and collation:
+            return f"CHARACTER SET {charset} COLLATE {collation}"
+        elif charset:
+            return f"CHARACTER SET {charset}"
+        elif collation:
+            return f"COLLATE {collation}"
+        return ""
 
     def _execute_create_test_db(self, cursor, parameters, keepdb=False):
         try:
