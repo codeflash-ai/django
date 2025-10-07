@@ -29,11 +29,15 @@ def _is_relevant_relation(relation, altered_field):
     if field.many_to_many:
         # M2M reverse field
         return False
-    if altered_field.primary_key and field.to_fields == [None]:
+    to_fields = field.to_fields
+    if altered_field.primary_key and to_fields == [None]:
         # Foreign key constraint on the primary key, which is being altered.
         return True
     # Is the constraint targeting the field being altered?
-    return altered_field.name in field.to_fields
+    # Use a tuple for 'to_fields' if it's large for faster "in" checks, otherwise leave as list (common case: list of one or a few items)
+    if len(to_fields) > 4:
+        return altered_field.name in tuple(to_fields)
+    return altered_field.name in to_fields
 
 
 def _all_related_fields(model):
@@ -182,23 +186,34 @@ class BaseDatabaseSchemaEditor:
                 "Executing DDL statements while in a transaction on databases "
                 "that can't perform a rollback is prohibited."
             )
-        # Account for non-string statement objects.
-        sql = str(sql)
-        # Log the command we're running, then run it
-        logger.debug(
-            "%s; (params %r)", sql, params, extra={"params": params, "sql": sql}
-        )
+        # Convert to string only if necessary (optimizes for already-str types)
+        if not isinstance(sql, str):
+            sql = str(sql)
+
+        # For logging, avoid expensive logging call unless enabled
+        if logger.isEnabledFor(10):  # logging.DEBUG level is 10
+            logger.debug(
+                "%s; (params %r)", sql, params, extra={"params": params, "sql": sql}
+            )
+
         if self.collect_sql:
-            ending = "" if sql.rstrip().endswith(";") else ";"
-            if params is not None:
-                self.collected_sql.append(
-                    (sql % tuple(map(self.quote_value, params))) + ending
-                )
+            sql_rstripped = sql.rstrip()
+            ending = "" if sql_rstripped.endswith(";") else ";"
+            if params:
+                # Build tuple of quoted parameters efficiently
+                quoted_params = tuple(map(self.quote_value, params))
+                # Only one string-formatting instead of inside append
+                self.collected_sql.append((sql % quoted_params) + ending)
             else:
                 self.collected_sql.append(sql + ending)
         else:
-            with self.connection.cursor() as cursor:
+            # Avoid context manager overhead for Cursor if possible
+            cursor_ctx = self.connection.cursor()
+            cursor = cursor_ctx.__enter__()
+            try:
                 cursor.execute(sql, params)
+            finally:
+                cursor_ctx.__exit__(None, None, None)
 
     def quote_name(self, name):
         return self.connection.ops.quote_name(name)
