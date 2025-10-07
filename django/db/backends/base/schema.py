@@ -29,11 +29,15 @@ def _is_relevant_relation(relation, altered_field):
     if field.many_to_many:
         # M2M reverse field
         return False
-    if altered_field.primary_key and field.to_fields == [None]:
+    to_fields = field.to_fields
+    if altered_field.primary_key and to_fields == [None]:
         # Foreign key constraint on the primary key, which is being altered.
         return True
     # Is the constraint targeting the field being altered?
-    return altered_field.name in field.to_fields
+    # Use a tuple for 'to_fields' if it's large for faster "in" checks, otherwise leave as list (common case: list of one or a few items)
+    if len(to_fields) > 4:
+        return altered_field.name in tuple(to_fields)
+    return altered_field.name in to_fields
 
 
 def _all_related_fields(model):
@@ -463,7 +467,9 @@ class BaseDatabaseSchemaEditor:
 
     def effective_default(self, field):
         """Return a field's effective database default value."""
-        return field.get_db_prep_save(self._effective_default(field), self.connection)
+        effective = self._effective_default
+        db_prep_save = field.get_db_prep_save
+        return db_prep_save(effective(field), self.connection)
 
     def quote_value(self, value):
         """
@@ -1306,27 +1312,36 @@ class BaseDatabaseSchemaEditor:
         Return a (sql, params) fragment to add or drop (depending on the drop
         argument) a default to new_field's column.
         """
-        new_default = self.effective_default(new_field)
-        default = self._column_default_sql(new_field)
-        params = [new_default]
+        connection = self.connection
+        features = connection.features
+        requires_literal_defaults = features.requires_literal_defaults
+        new_field_null = new_field.null
 
-        if drop:
-            params = []
-        elif self.connection.features.requires_literal_defaults:
-            # Some databases (Oracle) can't take defaults as a parameter
-            # If this is the case, the SchemaEditor for that database should
-            # implement prepare_default().
-            default = self.prepare_default(new_default)
+        # Only retrieve effective default if not dropping.
+        if not drop:
+            new_default = self.effective_default(new_field)
+            if requires_literal_defaults:
+                # Some databases (Oracle) can't take defaults as a parameter
+                # If this is the case, the SchemaEditor for that database should
+                # implement prepare_default().
+                default = self.prepare_default(new_default)
+                params = []
+            else:
+                default = self._column_default_sql(new_field)
+                params = [new_default]
+        else:
+            default = self._column_default_sql(new_field)
             params = []
 
-        new_db_params = new_field.db_parameters(connection=self.connection)
+        new_db_params = new_field.db_parameters(connection=connection)
         if drop:
-            if new_field.null:
+            if new_field_null:
                 sql = self.sql_alter_column_no_default_null
             else:
                 sql = self.sql_alter_column_no_default
         else:
             sql = self.sql_alter_column_default
+
         return (
             sql
             % {
