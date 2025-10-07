@@ -658,17 +658,19 @@ class BoundaryIter:
         index = data.find(self._boundary)
         if index < 0:
             return None
-        else:
-            end = index
-            next = index + len(self._boundary)
-            # backup over CRLF
-            last = max(0, end - 1)
-            if data[last : last + 1] == b"\n":
-                end -= 1
-            last = max(0, end - 1)
-            if data[last : last + 1] == b"\r":
-                end -= 1
-            return end, next
+        end = index
+        next = index + len(self._boundary)
+
+        # Fast path: only check one or two bytes before the boundary if possible.
+        # Avoid extra max() calls and slicing overhead.
+
+        # If there's at least one byte before, check for \n
+        if end >= 1 and data[end - 1] == 0x0A:  # b'\n'
+            end -= 1
+        # If there's now at least one byte before, check for \r
+        if end >= 1 and data[end - 1] == 0x0D:  # b'\r'
+            end -= 1
+        return end, next
 
 
 def exhaust(stream_or_iterable):
