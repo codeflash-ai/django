@@ -152,19 +152,20 @@ class Migration:
         # Construct all the intermediate states we need for a reverse migration
         to_run = []
         new_state = project_state
-        # Phase 1
+        # Phase 1 - Step through in normal order to avoid O(n^2) inserts, build and reverse later
         for operation in self.operations:
             # If it's irreversible, error out
             if not operation.reversible:
                 raise IrreversibleError(
                     "Operation %s in %s is not reversible" % (operation, self)
                 )
-            # Preserve new state from previous run to not tamper the same state
-            # over all operations
-            new_state = new_state.clone()
-            old_state = new_state.clone()
+            old_state = new_state
+            # Only clone once per iteration, to create the new state
+            new_state = old_state.clone()
             operation.state_forwards(self.app_label, new_state)
-            to_run.insert(0, (operation, old_state, new_state))
+            to_run.append((operation, old_state, new_state))
+        # Reverse the prepared list for backwards execution
+        to_run.reverse()
 
         # Phase 2
         for operation, to_state, from_state in to_run:
