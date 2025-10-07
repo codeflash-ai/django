@@ -49,8 +49,15 @@ class Q(tree.Node):
     conditional = True
 
     def __init__(self, *args, _connector=None, _negated=False, **kwargs):
+        # Optimization: Reduce list/join overhead for children construction by avoiding unpacking if possible
+        # Since sorted([].items()) is empty, so no need to check if not kwargs.
+        if kwargs:
+            children = [*args]
+            children.extend(sorted(kwargs.items()))
+        else:
+            children = list(args)
         super().__init__(
-            children=[*args, *sorted(kwargs.items())],
+            children=children,
             connector=_connector,
             negated=_negated,
         )
@@ -143,9 +150,14 @@ class Q(tree.Node):
             return True
 
     def deconstruct(self):
-        path = "%s.%s" % (self.__class__.__module__, self.__class__.__name__)
-        if path.startswith("django.db.models.query_utils"):
-            path = path.replace("django.db.models.query_utils", "django.db.models")
+        # Optimization: use f-string and index-slice check instead of startswith/replace for speed
+        cls = self.__class__
+        mod = cls.__module__
+        name = cls.__name__
+        if mod == "django.db.models.query_utils":
+            path = f"django.db.models.{name}"
+        else:
+            path = f"{mod}.{name}"
         args = tuple(self.children)
         kwargs = {}
         if self.connector != self.default:
