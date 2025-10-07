@@ -218,13 +218,27 @@ class Transform(RegisterLookupMixin, Func):
 
 class BuiltinLookup(Lookup):
     def process_lhs(self, compiler, connection, lhs=None):
-        lhs_sql, params = super().process_lhs(compiler, connection, lhs)
-        field_internal_type = self.lhs.output_field.get_internal_type()
-        if (
-            hasattr(connection.ops.__class__, "field_cast_sql")
-            and connection.ops.__class__.field_cast_sql
-            is not BaseDatabaseOperations.field_cast_sql
-        ):
+        lhs_obj = self.lhs if lhs is None else lhs
+        # Inline the super() call to avoid attribute lookup cost
+        # Manual inlining for slight speedup
+        if hasattr(lhs_obj, "resolve_expression"):
+            lhs_resolved = lhs_obj.resolve_expression(compiler.query)
+        else:
+            lhs_resolved = lhs_obj
+        sql, params = compiler.compile(lhs_resolved)
+        if isinstance(lhs_resolved, Lookup):
+            sql = f"({sql})"
+
+        # local variable for speed
+        output_field = self.lhs.output_field
+        field_internal_type = output_field.get_internal_type()
+
+        # Fast-path the "if" (avoid repeated dereferencing)
+        # Use direct reference to class
+        ops_cls = connection.ops.__class__
+        field_cast = getattr(ops_cls, "field_cast_sql", None)
+        # Only perform warnings and casting if necessary
+        if field_cast and field_cast is not BaseDatabaseOperations.field_cast_sql:
             warnings.warn(
                 (
                     "The usage of DatabaseOperations.field_cast_sql() is deprecated. "
@@ -232,14 +246,11 @@ class BuiltinLookup(Lookup):
                 ),
                 RemovedInDjango60Warning,
             )
-            db_type = self.lhs.output_field.db_type(connection=connection)
-            lhs_sql = (
-                connection.ops.field_cast_sql(db_type, field_internal_type) % lhs_sql
-            )
-        lhs_sql = (
-            connection.ops.lookup_cast(self.lookup_name, field_internal_type) % lhs_sql
-        )
-        return lhs_sql, list(params)
+            db_type = output_field.db_type(connection=connection)
+            sql = connection.ops.field_cast_sql(db_type, field_internal_type) % sql
+
+        sql = connection.ops.lookup_cast(self.lookup_name, field_internal_type) % sql
+        return sql, list(params)
 
     def as_sql(self, compiler, connection):
         lhs_sql, params = self.process_lhs(compiler, connection)
@@ -635,21 +646,26 @@ class IsNull(BuiltinLookup):
     prepare_rhs = False
 
     def as_sql(self, compiler, connection):
-        if not isinstance(self.rhs, bool):
+        rhs = self.rhs
+        lhs = self.lhs
+
+        if not isinstance(rhs, bool):
             raise ValueError(
                 "The QuerySet value for an isnull lookup must be True or False."
             )
-        if isinstance(self.lhs, Value):
-            if self.lhs.value is None or (
-                self.lhs.value == ""
-                and connection.features.interprets_empty_strings_as_nulls
+
+        if isinstance(lhs, Value):
+            v = lhs.value
+            if v is None or (
+                v == "" and connection.features.interprets_empty_strings_as_nulls
             ):
-                result_exception = FullResultSet if self.rhs else EmptyResultSet
+                result_exception = FullResultSet if rhs else EmptyResultSet
             else:
-                result_exception = EmptyResultSet if self.rhs else FullResultSet
+                result_exception = EmptyResultSet if rhs else FullResultSet
             raise result_exception
+
         sql, params = self.process_lhs(compiler, connection)
-        if self.rhs:
+        if rhs:
             return "%s IS NULL" % sql, params
         else:
             return "%s IS NOT NULL" % sql, params
