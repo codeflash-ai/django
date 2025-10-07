@@ -29,11 +29,15 @@ def _is_relevant_relation(relation, altered_field):
     if field.many_to_many:
         # M2M reverse field
         return False
-    if altered_field.primary_key and field.to_fields == [None]:
+    to_fields = field.to_fields
+    if altered_field.primary_key and to_fields == [None]:
         # Foreign key constraint on the primary key, which is being altered.
         return True
     # Is the constraint targeting the field being altered?
-    return altered_field.name in field.to_fields
+    # Use a tuple for 'to_fields' if it's large for faster "in" checks, otherwise leave as list (common case: list of one or a few items)
+    if len(to_fields) > 4:
+        return altered_field.name in tuple(to_fields)
+    return altered_field.name in to_fields
 
 
 def _all_related_fields(model):
@@ -1665,10 +1669,14 @@ class BaseDatabaseSchemaEditor:
         )
 
     def _rename_field_sql(self, table, old_field, new_field, new_type):
+        # Avoid repeated attribute lookup and method calls within the dict
+        quote = self.connection.ops.quote_name
+        old_col = old_field.column
+        new_col = new_field.column
         return self.sql_rename_column % {
-            "table": self.quote_name(table),
-            "old_column": self.quote_name(old_field.column),
-            "new_column": self.quote_name(new_field.column),
+            "table": quote(table),
+            "old_column": quote(old_col),
+            "new_column": quote(new_col),
             "type": new_type,
         }
 
