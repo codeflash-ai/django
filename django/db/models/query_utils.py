@@ -239,7 +239,11 @@ class class_or_instance_method:
 
 class RegisterLookupMixin:
     def _get_lookup(self, lookup_name):
-        return self.get_lookups().get(lookup_name, None)
+        lookups = getattr(self, "_cached_lookups", None)
+        if lookups is None:
+            lookups = self.get_lookups()
+            setattr(self, "_cached_lookups", lookups)
+        return lookups.get(lookup_name, None)
 
     @functools.cache
     def get_class_lookups(cls):
