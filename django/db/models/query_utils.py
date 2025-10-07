@@ -214,9 +214,17 @@ class DeferredAttribute:
         loaded in the instance. This can be done if the to-be fetched
         field is a primary key field.
         """
+        # Micro-optimization: localize attributes and use early returns for clarity and reduced lookup time.
+        field = self.field
         opts = instance._meta
-        link_field = opts.get_ancestor_link(self.field.model)
-        if self.field.primary_key and self.field != link_field:
+
+        # Early exit if this is not a primary key
+        if not field.primary_key:
+            return None
+
+        # Access get_ancestor_link only if primary_key is True
+        link_field = opts.get_ancestor_link(field.model)
+        if field is not link_field:
             return getattr(instance, link_field.attname)
         return None
 
