@@ -29,11 +29,15 @@ def _is_relevant_relation(relation, altered_field):
     if field.many_to_many:
         # M2M reverse field
         return False
-    if altered_field.primary_key and field.to_fields == [None]:
+    to_fields = field.to_fields
+    if altered_field.primary_key and to_fields == [None]:
         # Foreign key constraint on the primary key, which is being altered.
         return True
     # Is the constraint targeting the field being altered?
-    return altered_field.name in field.to_fields
+    # Use a tuple for 'to_fields' if it's large for faster "in" checks, otherwise leave as list (common case: list of one or a few items)
+    if len(to_fields) > 4:
+        return altered_field.name in tuple(to_fields)
+    return altered_field.name in to_fields
 
 
 def _all_related_fields(model):
@@ -1673,14 +1677,28 @@ class BaseDatabaseSchemaEditor:
         }
 
     def _create_fk_sql(self, model, field, suffix):
-        table = Table(model._meta.db_table, self.quote_name)
-        name = self._fk_constraint_name(model, field, suffix)
-        column = Columns(model._meta.db_table, [field.column], self.quote_name)
-        to_table = Table(field.target_field.model._meta.db_table, self.quote_name)
+        # Optimize repeated attribute accesses and function calls
+        model_meta_db_table = model._meta.db_table
+        field_column = field.column
+        target_field = field.target_field
+        target_model_meta_db_table = target_field.model._meta.db_table
+        target_field_column = target_field.column
+        quote_name = self.quote_name  # Avoid attribute lookup
+
+        # Precompute result for _fk_constraint_name
+        name = self._fk_constraint_name_precomputed(
+            model_meta_db_table,
+            field_column,
+            target_model_meta_db_table,
+            target_field_column,
+            suffix,
+        )
+
+        table = Table(model_meta_db_table, quote_name)
+        column = Columns(model_meta_db_table, [field_column], quote_name)
+        to_table = Table(target_model_meta_db_table, quote_name)
         to_column = Columns(
-            field.target_field.model._meta.db_table,
-            [field.target_field.column],
-            self.quote_name,
+            target_model_meta_db_table, [target_field_column], quote_name
         )
         deferrable = self.connection.ops.deferrable_sql()
         return Statement(
@@ -1999,3 +2017,26 @@ class BaseDatabaseSchemaEditor:
             "param_types": ",".join(param_types),
         }
         self.execute(sql)
+
+    def _fk_constraint_name_precomputed(
+        self,
+        model_meta_db_table: str,
+        field_column: str,
+        target_model_meta_db_table: str,
+        target_field_column: str,
+        suffix,
+    ):
+        # Helper to avoid duplicated logic and repeated split/lookup
+        split_table_name = split_identifier(target_model_meta_db_table)[1]
+
+        def create_fk_name(*args, **kwargs):
+            return self.quote_name(self._create_index_name(*args, **kwargs))
+
+        return ForeignKeyName(
+            model_meta_db_table,
+            [field_column],
+            split_table_name,
+            [target_field_column],
+            suffix,
+            create_fk_name,
+        )
