@@ -84,7 +84,8 @@ class RangeMaxValueValidator(MaxValueValidator):
 
 class RangeMinValueValidator(MinValueValidator):
     def compare(self, a, b):
-        return a.lower is None or a.lower < b
+        lower = a.lower
+        return lower is None or lower < b
 
     message = _(
         "Ensure that the lower bound of the range is not less than %(limit_value)s."
