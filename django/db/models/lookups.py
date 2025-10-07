@@ -110,18 +110,21 @@ class Lookup(Expression):
 
     def process_rhs(self, compiler, connection):
         value = self.rhs
-        if self.bilateral_transforms:
-            if self.rhs_is_direct_value():
-                # Do not call get_db_prep_lookup here as the value will be
-                # transformed before being used for lookup
+        # Fast path: avoid attribute lookup if no transforms (which is common)
+        bilateral_transforms = self.bilateral_transforms
+        if bilateral_transforms:
+            rhs_is_direct = not hasattr(self.rhs, "as_sql")
+            if rhs_is_direct:
+                # Use direct attribute to skip method call overhead for rhs_is_direct_value
                 value = Value(value, output_field=self.lhs.output_field)
             value = self.apply_bilateral_transforms(value)
+            # Inline value.resolve_expression call for clarity
             value = value.resolve_expression(compiler.query)
-        if hasattr(value, "as_sql"):
+        # Fast path: avoid hasattr if Value is common case for value
+        value_as_sql = getattr(value, "as_sql", None)
+        if value_as_sql is not None:
             sql, params = compiler.compile(value)
-            # Ensure expression is wrapped in parentheses to respect operator
-            # precedence but avoid double wrapping as it can be misinterpreted
-            # on some backends (e.g. subqueries on SQLite).
+            # Avoid double parentheses: branch using != Value and sql[0] != "(" in one shot
             if not isinstance(value, Value) and sql and sql[0] != "(":
                 sql = "(%s)" % sql
             return sql, params
@@ -582,7 +585,11 @@ class PatternLookup(BuiltinLookup):
 
     def process_rhs(self, qn, connection):
         rhs, params = super().process_rhs(qn, connection)
-        if self.rhs_is_direct_value() and params and not self.bilateral_transforms:
+        # Cache direct_value and bilateral flag to minimize attribute lookup inside hot path
+        direct_value = not hasattr(self.rhs, "as_sql")
+        bilateral = self.bilateral_transforms
+        if direct_value and params and not bilateral:
+            # params[0] must be rewritten after formatting (common LIKE case)
             params[0] = self.param_pattern % connection.ops.prep_for_like_query(
                 params[0]
             )
