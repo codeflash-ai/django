@@ -28,6 +28,12 @@ def delete_selected(modeladmin, request, queryset):
     """
     opts = modeladmin.model._meta
     app_label = opts.app_label
+    admin_site = modeladmin.admin_site
+    action_checkbox_name = helpers.ACTION_CHECKBOX_NAME
+    media = modeladmin.media
+    delete_selected_confirmation_template = (
+        modeladmin.delete_selected_confirmation_template
+    )
 
     # Populate deletable_objects, a data structure of all related objects that
     # will also be deleted.
@@ -50,7 +56,7 @@ def delete_selected(modeladmin, request, queryset):
             modeladmin.message_user(
                 request,
                 _("Successfully deleted %(count)d %(items)s.")
-                % {"count": n, "items": model_ngettext(modeladmin.opts, n)},
+                % {"count": n, "items": model_ngettext(opts, n)},
                 messages.SUCCESS,
             )
         # Return None to display the change list page again.
@@ -64,7 +70,7 @@ def delete_selected(modeladmin, request, queryset):
         title = _("Are you sure?")
 
     context = {
-        **modeladmin.admin_site.each_context(request),
+        **admin_site.each_context(request),
         "title": title,
         "subtitle": None,
         "objects_name": str(objects_name),
@@ -74,16 +80,16 @@ def delete_selected(modeladmin, request, queryset):
         "perms_lacking": perms_needed,
         "protected": protected,
         "opts": opts,
-        "action_checkbox_name": helpers.ACTION_CHECKBOX_NAME,
-        "media": modeladmin.media,
+        "action_checkbox_name": action_checkbox_name,
+        "media": media,
     }
 
-    request.current_app = modeladmin.admin_site.name
+    request.current_app = admin_site.name
 
     # Display the confirmation page
     return TemplateResponse(
         request,
-        modeladmin.delete_selected_confirmation_template
+        delete_selected_confirmation_template
         or [
             "admin/%s/%s/delete_selected_confirmation.html"
             % (app_label, opts.model_name),

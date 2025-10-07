@@ -277,7 +277,10 @@ def model_ngettext(obj, n=None):
     """
     if isinstance(obj, models.query.QuerySet):
         if n is None:
-            n = obj.count()
+            try:
+                n = len(obj)  # More efficient than .count() if already evaluated
+            except TypeError:
+                n = obj.count()
         obj = obj.model
     d = model_format_dict(obj)
     singular, plural = d["verbose_name"], d["verbose_name_plural"]
