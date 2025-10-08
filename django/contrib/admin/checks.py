@@ -15,6 +15,8 @@ from django.template import engines
 from django.template.backends.django import DjangoTemplates
 from django.utils.module_loading import import_string
 
+_ALLOWED_TYPES = (bool, list, tuple)
+
 
 def _issubclass(cls, classinfo):
     """
@@ -1054,13 +1056,17 @@ class ModelAdminChecks(BaseModelAdminChecks):
     def _check_list_select_related(self, obj):
         """Check that list_select_related is a boolean, a list or a tuple."""
 
-        if not isinstance(obj.list_select_related, (bool, list, tuple)):
-            return must_be(
-                "a boolean, tuple or list",
-                option="list_select_related",
-                obj=obj,
-                id="admin.E117",
-            )
+        list_select_related = obj.list_select_related
+        # Avoid isinstance tuple creation on every call
+        if not isinstance(list_select_related, _ALLOWED_TYPES):
+            # Fast string interpolation
+            return [
+                checks.Error(
+                    f"The value of 'list_select_related' must be a boolean, tuple or list.",
+                    obj=obj.__class__,
+                    id="admin.E117",
+                )
+            ]
         else:
             return []
 
