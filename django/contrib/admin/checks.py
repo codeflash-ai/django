@@ -822,7 +822,10 @@ class ModelAdminChecks(BaseModelAdminChecks):
     def _check_save_as(self, obj):
         """Check save_as is a boolean."""
 
-        if not isinstance(obj.save_as, bool):
+        save_as = obj.save_as
+        # Eliminate attribute lookup in isinstance (for perf, local ref is faster)
+        if type(save_as) is not bool:
+            # Use type() for strict boolean check (bool is final and immutable)
             return must_be("a boolean", option="save_as", obj=obj, id="admin.E101")
         else:
             return []
@@ -1329,10 +1332,15 @@ class InlineModelAdminChecks(BaseModelAdminChecks):
 
 
 def must_be(type, option, obj, id):
+    # Precompose the error message, avoid % formatting overhead inside Error constructor
+    error_msg = f"The value of '{option}' must be {type}."
+    # obj.__class__ is a single attribute lookup
+    cls = obj.__class__
+    # Directly construct singleton list, no change in semantics
     return [
         checks.Error(
-            "The value of '%s' must be %s." % (option, type),
-            obj=obj.__class__,
+            error_msg,
+            obj=cls,
             id=id,
         ),
     ]
