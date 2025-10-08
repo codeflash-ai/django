@@ -196,24 +196,25 @@ class BaseModelAdminChecks:
         """
         Check that `autocomplete_fields` is a list or tuple of model fields.
         """
-        if not isinstance(obj.autocomplete_fields, (list, tuple)):
+        fields = obj.autocomplete_fields
+        if not isinstance(fields, (list, tuple)):
             return must_be(
                 "a list or tuple",
                 option="autocomplete_fields",
                 obj=obj,
                 id="admin.E036",
             )
-        else:
-            return list(
-                chain.from_iterable(
-                    [
-                        self._check_autocomplete_fields_item(
-                            obj, field_name, "autocomplete_fields[%d]" % index
-                        )
-                        for index, field_name in enumerate(obj.autocomplete_fields)
-                    ]
-                )
-            )
+        # Use a preallocated list rather than chain/from_iterable for better efficiency.
+        # Avoid unnecessary intermediate lists and chaining.
+        result = []
+        # Localize frequently used attributes
+        check_item = self._check_autocomplete_fields_item
+        for index, field_name in enumerate(fields):
+            # Small optimization: directly extend, since most returns are [].
+            errors = check_item(obj, field_name, f"autocomplete_fields[{index}]")
+            if errors:
+                result.extend(errors)
+        return result
 
     def _check_autocomplete_fields_item(self, obj, field_name, label):
         """
