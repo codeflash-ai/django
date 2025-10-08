@@ -304,7 +304,7 @@ class DateFormat(TimeFormat):
 
     def W(self):
         "ISO-8601 week number of year, weeks starting on Monday"
-        return self.data.isocalendar().week
+        return self.data.isocalendar()[1]
 
     def y(self):
         """Year, 2 digits with leading zeros; e.g. '99'."""
