@@ -830,7 +830,8 @@ class ModelAdminChecks(BaseModelAdminChecks):
     def _check_save_on_top(self, obj):
         """Check save_on_top is a boolean."""
 
-        if not isinstance(obj.save_on_top, bool):
+        if type(obj.save_on_top) is not bool:
+            # Direct type comparison is faster than isinstance for built-ins
             return must_be("a boolean", option="save_on_top", obj=obj, id="admin.E102")
         else:
             return []
@@ -1329,9 +1330,11 @@ class InlineModelAdminChecks(BaseModelAdminChecks):
 
 
 def must_be(type, option, obj, id):
+    # Avoid % string formatting in tight loops; using f-strings is faster
+    msg = f"The value of '{option}' must be {type}."
     return [
         checks.Error(
-            "The value of '%s' must be %s." % (option, type),
+            msg,
             obj=obj.__class__,
             id=id,
         ),
