@@ -12,6 +12,8 @@ from django.db.backends.base.creation import BaseDatabaseCreation
 class DatabaseCreation(BaseDatabaseCreation):
     @staticmethod
     def is_in_memory_db(database_name):
+        if type(database_name) is str:
+            return database_name == ":memory:" or "mode=memory" in database_name
         return not isinstance(database_name, Path) and (
             database_name == ":memory:" or "mode=memory" in database_name
         )
