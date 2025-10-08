@@ -12,14 +12,29 @@ from django.db.backends.base.creation import BaseDatabaseCreation
 class DatabaseCreation(BaseDatabaseCreation):
     @staticmethod
     def is_in_memory_db(database_name):
-        return not isinstance(database_name, Path) and (
-            database_name == ":memory:" or "mode=memory" in database_name
-        )
+        # Optimize order to avoid "in" test for Path
+        # Avoid use of "in" if database_name cannot possibly be a string
+        # The isinstance(Path) check avoids unnecessary substring checks
+        if isinstance(database_name, Path):
+            return False
+        # Use direct comparison; 'mode=memory' is rare, check equality first
+        if database_name == ":memory:":
+            return True
+        # The 'in' test: only if database_name is not Path and not ":memory:"
+        return "mode=memory" in database_name
 
     def _get_test_db_name(self):
-        test_database_name = self.connection.settings_dict["TEST"]["NAME"] or ":memory:"
+        settings_dict = self.connection.settings_dict
+        test_settings = settings_dict.get("TEST")
+        if test_settings:
+            test_database_name = test_settings.get("NAME")
+        else:
+            test_database_name = None
+        if not test_database_name:
+            test_database_name = ":memory:"
+        # Direct string comparison
         if test_database_name == ":memory:":
-            return "file:memorydb_%s?mode=memory&cache=shared" % self.connection.alias
+            return f"file:memorydb_{self.connection.alias}?mode=memory&cache=shared"
         return test_database_name
 
     def _create_test_db(self, verbosity, autoclobber, keepdb=False):
@@ -119,13 +134,16 @@ class DatabaseCreation(BaseDatabaseCreation):
         SQLite since the databases will be distinct despite having the same
         TEST NAME. See https://www.sqlite.org/inmemorydb.html
         """
+        # Inline settings_dict for micro-optimization (one lookup)
+        settings_dict = self.connection.settings_dict
+        db_name = settings_dict["NAME"]
         test_database_name = self._get_test_db_name()
-        sig = [self.connection.settings_dict["NAME"]]
+        # Preallocate sig with both items, mutate second accordingly
         if self.is_in_memory_db(test_database_name):
-            sig.append(self.connection.alias)
+            sig = (db_name, self.connection.alias)
         else:
-            sig.append(test_database_name)
-        return tuple(sig)
+            sig = (db_name, test_database_name)
+        return sig
 
     def setup_worker_connection(self, _worker_id):
         settings_dict = self.get_test_db_clone_settings(_worker_id)
