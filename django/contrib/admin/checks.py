@@ -690,9 +690,13 @@ class BaseModelAdminChecks:
         try:
             obj.model._meta.get_field(field_name)
         except FieldDoesNotExist:
-            return refer_to_missing_field(
-                field=field_name, option=label, obj=obj, id="admin.E030"
-            )
+            return [
+                checks.Error(
+                    f"The value of '{label}' refers to '{field_name}', which is not a field of '{obj.model._meta.label}'.",
+                    obj=obj.__class__,
+                    id="admin.E030",
+                )
+            ]
         else:
             return []
 
