@@ -238,7 +238,8 @@ class DateFormat(TimeFormat):
 
     def L(self):
         "Boolean for whether it is a leap year; i.e. True or False"
-        return calendar.isleap(self.data.year)
+        year = self.data.year
+        return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
 
     def m(self):
         "Month; i.e. '01' to '12'"
