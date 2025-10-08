@@ -19,7 +19,7 @@ class DatabaseCreation(BaseDatabaseCreation):
     def _get_test_db_name(self):
         test_database_name = self.connection.settings_dict["TEST"]["NAME"] or ":memory:"
         if test_database_name == ":memory:":
-            return "file:memorydb_%s?mode=memory&cache=shared" % self.connection.alias
+            return f"file:memorydb_{self.connection.alias}?mode=memory&cache=shared"
         return test_database_name
 
     def _create_test_db(self, verbosity, autoclobber, keepdb=False):
