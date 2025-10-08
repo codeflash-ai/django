@@ -699,58 +699,70 @@ class BaseModelAdminChecks:
     def _check_ordering(self, obj):
         """Check that ordering refers to existing fields or is random."""
 
-        # ordering = None
-        if obj.ordering is None:  # The default value is None
+        ordering = obj.ordering
+        if ordering is None:  # The default value is None
             return []
-        elif not isinstance(obj.ordering, (list, tuple)):
+        if not isinstance(ordering, (list, tuple)):
             return must_be(
                 "a list or tuple", option="ordering", obj=obj, id="admin.E031"
             )
-        else:
-            return list(
-                chain.from_iterable(
-                    self._check_ordering_item(obj, field_name, "ordering[%d]" % index)
-                    for index, field_name in enumerate(obj.ordering)
-                )
+
+        # Preallocate results for memory efficiency, since length equals ordering
+        results = []
+        append = results.append
+        for index, field_name in enumerate(ordering):
+            check_result = self._check_ordering_item(
+                obj, field_name, f"ordering[{index}]"
             )
+            if check_result:
+                append(check_result)
+        # Flatten the preallocated results
+        if not results:
+            return []
+        return [item for sublist in results for item in sublist]
 
     def _check_ordering_item(self, obj, field_name, label):
         """Check that `ordering` refers to existing fields."""
+        # Avoid multiple isinstance checks if not necessary
         if isinstance(field_name, (Combinable, models.OrderBy)):
+            # Fast path for models.OrderBy
             if not isinstance(field_name, models.OrderBy):
                 field_name = field_name.asc()
-            if isinstance(field_name.expression, models.F):
-                field_name = field_name.expression.name
+            expr = field_name.expression
+            if isinstance(expr, models.F):
+                field_name = expr.name
             else:
                 return []
-        if field_name == "?" and len(obj.ordering) != 1:
-            return [
-                checks.Error(
-                    "The value of 'ordering' has the random ordering marker '?', "
-                    "but contains other fields as well.",
-                    hint='Either remove the "?", or remove the other fields.',
-                    obj=obj.__class__,
-                    id="admin.E032",
-                )
-            ]
-        elif field_name == "?":
+        # Check for random ordering marker first (most common case)
+        if field_name == "?":
+            if len(obj.ordering) != 1:
+                return [
+                    checks.Error(
+                        "The value of 'ordering' has the random ordering marker '?', "
+                        "but contains other fields as well.",
+                        hint='Either remove the "?", or remove the other fields.',
+                        obj=obj.__class__,
+                        id="admin.E032",
+                    )
+                ]
             return []
-        elif LOOKUP_SEP in field_name:
+        # Fast path for lookup separator
+        if LOOKUP_SEP in field_name:
             # Skip ordering in the format field1__field2 (FIXME: checking
             # this format would be nice, but it's a little fiddly).
             return []
-        else:
-            field_name = field_name.removeprefix("-")
-            if field_name == "pk":
-                return []
-            try:
-                obj.model._meta.get_field(field_name)
-            except FieldDoesNotExist:
-                return refer_to_missing_field(
-                    field=field_name, option=label, obj=obj, id="admin.E033"
-                )
-            else:
-                return []
+        # Remove the leading "-" (most likely scenario)
+        field_name = field_name.removeprefix("-")
+        if field_name == "pk":
+            return []
+        # Exception path: missing field
+        try:
+            obj.model._meta.get_field(field_name)
+        except FieldDoesNotExist:
+            return refer_to_missing_field(
+                field=field_name, option=label, obj=obj, id="admin.E033"
+            )
+        return []
 
     def _check_readonly_fields(self, obj):
         """Check that readonly_fields refers to proper attribute or field."""
