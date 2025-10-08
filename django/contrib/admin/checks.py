@@ -671,17 +671,30 @@ class BaseModelAdminChecks:
         """Check a value of `prepopulated_fields` dictionary, i.e. it's an
         iterable of existing fields."""
 
+        # Fast path for most common types and empty list/tuple
         if not isinstance(val, (list, tuple)):
             return must_be("a list or tuple", option=label, obj=obj, id="admin.E029")
-        else:
-            return list(
-                chain.from_iterable(
-                    self._check_prepopulated_fields_value_item(
-                        obj, subfield_name, "%s[%r]" % (label, index)
+
+        errors = []
+        get_field = obj.model._meta.get_field
+        # Manual loop to avoid list+chain overhead; as each item returns either [] or a 1-element list
+        for index, subfield_name in enumerate(val):
+            try:
+                get_field(subfield_name)
+            except FieldDoesNotExist:
+                errors.append(
+                    checks.Error(
+                        "The value of '%s' refers to '%s', which is not a field of '%s'."
+                        % (
+                            "%s[%r]" % (label, index),
+                            subfield_name,
+                            obj.model._meta.label,
+                        ),
+                        obj=obj.__class__,
+                        id="admin.E030",
                     )
-                    for index, subfield_name in enumerate(val)
                 )
-            )
+        return errors
 
     def _check_prepopulated_fields_value_item(self, obj, field_name, label):
         """For `prepopulated_fields` equal to {"slug": ("title",)},
