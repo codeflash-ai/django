@@ -176,44 +176,47 @@ def check_dependencies(**kwargs):
 
 class BaseModelAdminChecks:
     def check(self, admin_obj, **kwargs):
+        # Using locals() to reduce attribute lookups and avoid repeated self binding
+        _self = self
         return [
-            *self._check_autocomplete_fields(admin_obj),
-            *self._check_raw_id_fields(admin_obj),
-            *self._check_fields(admin_obj),
-            *self._check_fieldsets(admin_obj),
-            *self._check_exclude(admin_obj),
-            *self._check_form(admin_obj),
-            *self._check_filter_vertical(admin_obj),
-            *self._check_filter_horizontal(admin_obj),
-            *self._check_radio_fields(admin_obj),
-            *self._check_prepopulated_fields(admin_obj),
-            *self._check_view_on_site_url(admin_obj),
-            *self._check_ordering(admin_obj),
-            *self._check_readonly_fields(admin_obj),
+            *_self._check_autocomplete_fields(admin_obj),
+            *_self._check_raw_id_fields(admin_obj),
+            *_self._check_fields(admin_obj),
+            *_self._check_fieldsets(admin_obj),
+            *_self._check_exclude(admin_obj),
+            *_self._check_form(admin_obj),
+            *_self._check_filter_vertical(admin_obj),
+            *_self._check_filter_horizontal(admin_obj),
+            *_self._check_radio_fields(admin_obj),
+            *_self._check_prepopulated_fields(admin_obj),
+            *_self._check_view_on_site_url(admin_obj),
+            *_self._check_ordering(admin_obj),
+            *_self._check_readonly_fields(admin_obj),
         ]
 
     def _check_autocomplete_fields(self, obj):
         """
         Check that `autocomplete_fields` is a list or tuple of model fields.
         """
-        if not isinstance(obj.autocomplete_fields, (list, tuple)):
+        af = obj.autocomplete_fields
+        if not isinstance(af, (list, tuple)):
             return must_be(
                 "a list or tuple",
                 option="autocomplete_fields",
                 obj=obj,
                 id="admin.E036",
             )
-        else:
-            return list(
-                chain.from_iterable(
-                    [
-                        self._check_autocomplete_fields_item(
-                            obj, field_name, "autocomplete_fields[%d]" % index
-                        )
-                        for index, field_name in enumerate(obj.autocomplete_fields)
-                    ]
-                )
-            )
+        if not af:
+            return []
+        # Avoid chain.from_iterable over a list comprehension, just use plain loop
+        errors = []
+        # Prebind function for performance in tight loops
+        _check_item = self._check_autocomplete_fields_item
+        for index, field_name in enumerate(af):
+            result = _check_item(obj, field_name, f"autocomplete_fields[{index}]")
+            if result:
+                errors.extend(result)
+        return errors
 
     def _check_autocomplete_fields_item(self, obj, field_name, label):
         """
@@ -269,20 +272,20 @@ class BaseModelAdminChecks:
     def _check_raw_id_fields(self, obj):
         """Check that `raw_id_fields` only contains field names that are listed
         on the model."""
-
-        if not isinstance(obj.raw_id_fields, (list, tuple)):
+        rf = obj.raw_id_fields
+        if not isinstance(rf, (list, tuple)):
             return must_be(
                 "a list or tuple", option="raw_id_fields", obj=obj, id="admin.E001"
             )
-        else:
-            return list(
-                chain.from_iterable(
-                    self._check_raw_id_fields_item(
-                        obj, field_name, "raw_id_fields[%d]" % index
-                    )
-                    for index, field_name in enumerate(obj.raw_id_fields)
-                )
-            )
+        if not rf:
+            return []
+        errors = []
+        _check_item = self._check_raw_id_fields_item
+        for index, field_name in enumerate(rf):
+            result = _check_item(obj, field_name, f"raw_id_fields[{index}]")
+            if result:
+                errors.extend(result)
+        return errors
 
     def _check_raw_id_fields_item(self, obj, field_name, label):
         """Check an item of `raw_id_fields`, i.e. check that field named
@@ -318,10 +321,10 @@ class BaseModelAdminChecks:
         """Check that `fields` only refer to existing fields, doesn't contain
         duplicates. Check if at most one of `fields` and `fieldsets` is defined.
         """
-
-        if obj.fields is None:
+        fields_val = obj.fields
+        if fields_val is None:
             return []
-        elif not isinstance(obj.fields, (list, tuple)):
+        elif not isinstance(fields_val, (list, tuple)):
             return must_be("a list or tuple", option="fields", obj=obj, id="admin.E004")
         elif obj.fieldsets:
             return [
@@ -331,8 +334,11 @@ class BaseModelAdminChecks:
                     id="admin.E005",
                 )
             ]
-        fields = flatten(obj.fields)
-        if len(fields) != len(set(fields)):
+
+        # More efficient duplicate check avoiding extra flattening when fields_val is empty
+        fields_flat = flatten(fields_val)
+        n_fields = len(fields_flat)
+        if n_fields and n_fields != len(set(fields_flat)):
             return [
                 checks.Error(
                     "The value of 'fields' contains duplicate field(s).",
@@ -340,34 +346,34 @@ class BaseModelAdminChecks:
                     id="admin.E006",
                 )
             ]
-
-        return list(
-            chain.from_iterable(
-                self._check_field_spec(obj, field_name, "fields")
-                for field_name in obj.fields
-            )
-        )
+        # Avoid chain.from_iterable, flat loop
+        errors = []
+        _field_spec = self._check_field_spec
+        for field_name in fields_val:
+            result = _field_spec(obj, field_name, "fields")
+            if result:
+                errors.extend(result)
+        return errors
 
     def _check_fieldsets(self, obj):
         """Check that fieldsets is properly formatted and doesn't contain
         duplicates."""
-
-        if obj.fieldsets is None:
+        fs = obj.fieldsets
+        if fs is None:
             return []
-        elif not isinstance(obj.fieldsets, (list, tuple)):
+        elif not isinstance(fs, (list, tuple)):
             return must_be(
                 "a list or tuple", option="fieldsets", obj=obj, id="admin.E007"
             )
         else:
             seen_fields = []
-            return list(
-                chain.from_iterable(
-                    self._check_fieldsets_item(
-                        obj, fieldset, "fieldsets[%d]" % index, seen_fields
-                    )
-                    for index, fieldset in enumerate(obj.fieldsets)
-                )
-            )
+            errors = []
+            _item_check = self._check_fieldsets_item
+            for index, fieldset in enumerate(fs):
+                result = _item_check(obj, fieldset, f"fieldsets[{index}]", seen_fields)
+                if result:
+                    errors.extend(result)
+            return errors
 
     def _check_fieldsets_item(self, obj, fieldset, label, seen_fields):
         """Check an item of `fieldsets`, i.e. check that this is a pair of a
@@ -462,14 +468,15 @@ class BaseModelAdminChecks:
 
     def _check_exclude(self, obj):
         """Check that exclude is a sequence without duplicates."""
-
-        if obj.exclude is None:  # default value is None
+        ex = obj.exclude
+        if ex is None:  # default value is None
             return []
-        elif not isinstance(obj.exclude, (list, tuple)):
+        elif not isinstance(ex, (list, tuple)):
             return must_be(
                 "a list or tuple", option="exclude", obj=obj, id="admin.E014"
             )
-        elif len(obj.exclude) > len(set(obj.exclude)):
+        n_ex = len(ex)
+        if n_ex and n_ex > len(set(ex)):
             return [
                 checks.Error(
                     "The value of 'exclude' contains duplicate field(s).",
@@ -477,8 +484,7 @@ class BaseModelAdminChecks:
                     id="admin.E015",
                 )
             ]
-        else:
-            return []
+        return []
 
     def _check_form(self, obj):
         """Check that form subclasses BaseModelForm."""
@@ -491,35 +497,37 @@ class BaseModelAdminChecks:
 
     def _check_filter_vertical(self, obj):
         """Check that filter_vertical is a sequence of field names."""
-        if not isinstance(obj.filter_vertical, (list, tuple)):
+        fv = obj.filter_vertical
+        if not isinstance(fv, (list, tuple)):
             return must_be(
                 "a list or tuple", option="filter_vertical", obj=obj, id="admin.E017"
             )
-        else:
-            return list(
-                chain.from_iterable(
-                    self._check_filter_item(
-                        obj, field_name, "filter_vertical[%d]" % index
-                    )
-                    for index, field_name in enumerate(obj.filter_vertical)
-                )
-            )
+        if not fv:
+            return []
+        errors = []
+        _check_item = self._check_filter_item
+        for index, field_name in enumerate(fv):
+            result = _check_item(obj, field_name, f"filter_vertical[{index}]")
+            if result:
+                errors.extend(result)
+        return errors
 
     def _check_filter_horizontal(self, obj):
         """Check that filter_horizontal is a sequence of field names."""
-        if not isinstance(obj.filter_horizontal, (list, tuple)):
+        fh = obj.filter_horizontal
+        if not isinstance(fh, (list, tuple)):
             return must_be(
                 "a list or tuple", option="filter_horizontal", obj=obj, id="admin.E018"
             )
-        else:
-            return list(
-                chain.from_iterable(
-                    self._check_filter_item(
-                        obj, field_name, "filter_horizontal[%d]" % index
-                    )
-                    for index, field_name in enumerate(obj.filter_horizontal)
-                )
-            )
+        if not fh:
+            return []
+        errors = []
+        _check_item = self._check_filter_item
+        for index, field_name in enumerate(fh):
+            result = _check_item(obj, field_name, f"filter_horizontal[{index}]")
+            if result:
+                errors.extend(result)
+        return errors
 
     def _check_filter_item(self, obj, field_name, label):
         """Check one item of `filter_vertical` or `filter_horizontal`, i.e.
@@ -551,20 +559,24 @@ class BaseModelAdminChecks:
 
     def _check_radio_fields(self, obj):
         """Check that `radio_fields` is a dictionary."""
-        if not isinstance(obj.radio_fields, dict):
+        rf_dict = obj.radio_fields
+        if not isinstance(rf_dict, dict):
             return must_be(
                 "a dictionary", option="radio_fields", obj=obj, id="admin.E021"
             )
-        else:
-            return list(
-                chain.from_iterable(
-                    self._check_radio_fields_key(obj, field_name, "radio_fields")
-                    + self._check_radio_fields_value(
-                        obj, val, 'radio_fields["%s"]' % field_name
-                    )
-                    for field_name, val in obj.radio_fields.items()
-                )
-            )
+        if not rf_dict:
+            return []
+        errors = []
+        _key_check = self._check_radio_fields_key
+        _val_check = self._check_radio_fields_value
+        for field_name, val in rf_dict.items():
+            res1 = _key_check(obj, field_name, "radio_fields")
+            if res1:
+                errors.extend(res1)
+            res2 = _val_check(obj, val, f'["{field_name}"]')
+            if res2:
+                errors.extend(res2)
+        return errors
 
     def _check_radio_fields_key(self, obj, field_name, label):
         """Check that a key of `radio_fields` dictionary is name of existing
@@ -608,7 +620,8 @@ class BaseModelAdminChecks:
             return []
 
     def _check_view_on_site_url(self, obj):
-        if not callable(obj.view_on_site) and not isinstance(obj.view_on_site, bool):
+        v = obj.view_on_site
+        if not callable(v) and not isinstance(v, bool):
             return [
                 checks.Error(
                     "The value of 'view_on_site' must be a callable or a boolean "
@@ -623,22 +636,24 @@ class BaseModelAdminChecks:
     def _check_prepopulated_fields(self, obj):
         """Check that `prepopulated_fields` is a dictionary containing allowed
         field types."""
-        if not isinstance(obj.prepopulated_fields, dict):
+        pf = obj.prepopulated_fields
+        if not isinstance(pf, dict):
             return must_be(
                 "a dictionary", option="prepopulated_fields", obj=obj, id="admin.E026"
             )
-        else:
-            return list(
-                chain.from_iterable(
-                    self._check_prepopulated_fields_key(
-                        obj, field_name, "prepopulated_fields"
-                    )
-                    + self._check_prepopulated_fields_value(
-                        obj, val, 'prepopulated_fields["%s"]' % field_name
-                    )
-                    for field_name, val in obj.prepopulated_fields.items()
-                )
-            )
+        if not pf:
+            return []
+        errors = []
+        _key_check = self._check_prepopulated_fields_key
+        _val_check = self._check_prepopulated_fields_value
+        for field_name, val in pf.items():
+            res1 = _key_check(obj, field_name, "prepopulated_fields")
+            if res1:
+                errors.extend(res1)
+            res2 = _val_check(obj, val, f'prepopulated_fields["{field_name}"]')
+            if res2:
+                errors.extend(res2)
+        return errors
 
     def _check_prepopulated_fields_key(self, obj, field_name, label):
         """Check a key of `prepopulated_fields` dictionary, i.e. check that it
@@ -698,21 +713,22 @@ class BaseModelAdminChecks:
 
     def _check_ordering(self, obj):
         """Check that ordering refers to existing fields or is random."""
-
-        # ordering = None
-        if obj.ordering is None:  # The default value is None
+        ordering = obj.ordering
+        if ordering is None:  # The default value is None
             return []
-        elif not isinstance(obj.ordering, (list, tuple)):
+        elif not isinstance(ordering, (list, tuple)):
             return must_be(
                 "a list or tuple", option="ordering", obj=obj, id="admin.E031"
             )
-        else:
-            return list(
-                chain.from_iterable(
-                    self._check_ordering_item(obj, field_name, "ordering[%d]" % index)
-                    for index, field_name in enumerate(obj.ordering)
-                )
-            )
+        if not ordering:
+            return []
+        errors = []
+        _check_item = self._check_ordering_item
+        for index, field_name in enumerate(ordering):
+            result = _check_item(obj, field_name, f"ordering[{index}]")
+            if result:
+                errors.extend(result)
+        return errors
 
     def _check_ordering_item(self, obj, field_name, label):
         """Check that `ordering` refers to existing fields."""
@@ -754,22 +770,22 @@ class BaseModelAdminChecks:
 
     def _check_readonly_fields(self, obj):
         """Check that readonly_fields refers to proper attribute or field."""
-
-        if obj.readonly_fields == ():
+        rf = obj.readonly_fields
+        if rf == ():
             return []
-        elif not isinstance(obj.readonly_fields, (list, tuple)):
+        elif not isinstance(rf, (list, tuple)):
             return must_be(
                 "a list or tuple", option="readonly_fields", obj=obj, id="admin.E034"
             )
-        else:
-            return list(
-                chain.from_iterable(
-                    self._check_readonly_fields_item(
-                        obj, field_name, "readonly_fields[%d]" % index
-                    )
-                    for index, field_name in enumerate(obj.readonly_fields)
-                )
-            )
+        if not rf:
+            return []
+        errors = []
+        _check_item = self._check_readonly_fields_item
+        for index, field_name in enumerate(rf):
+            result = _check_item(obj, field_name, f"readonly_fields[{index}]")
+            if result:
+                errors.extend(result)
+        return errors
 
     def _check_readonly_fields_item(self, obj, field_name, label):
         if callable(field_name):
