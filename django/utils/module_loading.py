@@ -3,6 +3,7 @@ import os
 import sys
 from importlib import import_module
 from importlib.util import find_spec as importlib_find
+from functools import lru_cache
 
 
 def cached_import(module_path, class_name):
@@ -16,6 +17,7 @@ def cached_import(module_path, class_name):
     return getattr(module, class_name)
 
 
+@lru_cache(maxsize=256)
 def import_string(dotted_path):
     """
     Import a dotted module path and return the attribute/class designated by the
