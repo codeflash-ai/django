@@ -755,21 +755,51 @@ class BaseModelAdminChecks:
     def _check_readonly_fields(self, obj):
         """Check that readonly_fields refers to proper attribute or field."""
 
-        if obj.readonly_fields == ():
+        readonly_fields = obj.readonly_fields
+        # Fast path for empty tuple
+        if readonly_fields == ():
             return []
-        elif not isinstance(obj.readonly_fields, (list, tuple)):
+        # Verify type only once, no redundant attribute access
+        if not isinstance(readonly_fields, (list, tuple)):
             return must_be(
                 "a list or tuple", option="readonly_fields", obj=obj, id="admin.E034"
             )
-        else:
-            return list(
-                chain.from_iterable(
-                    self._check_readonly_fields_item(
-                        obj, field_name, "readonly_fields[%d]" % index
+
+        model = obj.model
+        meta = model._meta
+        get_field = meta.get_field
+
+        # Pre-bind attributes for tight loop
+        obj_cls_name = obj.__class__.__name__
+        meta_label = meta.label
+
+        result = []
+        for index, field_name in enumerate(readonly_fields):
+            if (
+                callable(field_name)
+                or hasattr(obj, field_name)
+                or hasattr(model, field_name)
+            ):
+                # No errors for allowed cases
+                continue
+            try:
+                get_field(field_name)
+            except FieldDoesNotExist:
+                result.append(
+                    checks.Error(
+                        "The value of 'readonly_fields[%d]' refers to '%s', which is not a callable, "
+                        "an attribute of '%s', or an attribute of '%s'."
+                        % (
+                            index,
+                            field_name,
+                            obj_cls_name,
+                            meta_label,
+                        ),
+                        obj=obj.__class__,
+                        id="admin.E035",
                     )
-                    for index, field_name in enumerate(obj.readonly_fields)
                 )
-            )
+        return result
 
     def _check_readonly_fields_item(self, obj, field_name, label):
         if callable(field_name):
