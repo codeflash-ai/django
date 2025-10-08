@@ -14,8 +14,10 @@ from django.forms.models import BaseModelForm, BaseModelFormSet, _get_foreign_ke
 from django.template import engines
 from django.template.backends.django import DjangoTemplates
 from django.utils.module_loading import import_string
+from functools import lru_cache
 
 
+@lru_cache(maxsize=256)
 def _issubclass(cls, classinfo):
     """
     issubclass() variant that doesn't raise an exception if cls isn't a
