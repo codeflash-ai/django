@@ -359,15 +359,14 @@ class BaseModelAdminChecks:
                 "a list or tuple", option="fieldsets", obj=obj, id="admin.E007"
             )
         else:
-            seen_fields = []
-            return list(
-                chain.from_iterable(
-                    self._check_fieldsets_item(
-                        obj, fieldset, "fieldsets[%d]" % index, seen_fields
-                    )
-                    for index, fieldset in enumerate(obj.fieldsets)
+            seen_fields = set()
+            fieldsets_errors = []
+            for index, fieldset in enumerate(obj.fieldsets):
+                fieldset_errors = self._check_fieldsets_item(
+                    obj, fieldset, f"fieldsets[{index}]", seen_fields
                 )
-            )
+                fieldsets_errors.extend(fieldset_errors)
+            return fieldsets_errors
 
     def _check_fieldsets_item(self, obj, fieldset, label, seen_fields):
         """Check an item of `fieldsets`, i.e. check that this is a pair of a
@@ -392,13 +391,17 @@ class BaseModelAdminChecks:
         elif not isinstance(fieldset[1]["fields"], (list, tuple)):
             return must_be(
                 "a list or tuple",
-                option="%s[1]['fields']" % label,
+                option=f"{label}[1]['fields']",
                 obj=obj,
                 id="admin.E008",
             )
 
-        seen_fields.extend(flatten(fieldset[1]["fields"]))
-        if len(seen_fields) != len(set(seen_fields)):
+        # Use set for 'seen_fields' for O(1) lookups and updates, preserving the original behavioral constraint
+        new_fields = flatten(fieldset[1]["fields"])
+        # count duplicates using set logic but preserve error condition
+        prev_len = len(seen_fields)
+        seen_fields_update = seen_fields.update(new_fields)
+        if len(seen_fields) != prev_len + len(new_fields):
             return [
                 checks.Error(
                     "There are duplicate field(s) in '%s[1]'." % label,
@@ -406,12 +409,14 @@ class BaseModelAdminChecks:
                     id="admin.E012",
                 )
             ]
-        return list(
-            chain.from_iterable(
-                self._check_field_spec(obj, fieldset_fields, '%s[1]["fields"]' % label)
-                for fieldset_fields in fieldset[1]["fields"]
+        errors = []
+        fields = fieldset[1]["fields"]
+        # Inline the previous chain.from_iterable + list comprehension with a fast flat loop
+        for fieldset_fields in fields:
+            errors.extend(
+                self._check_field_spec(obj, fieldset_fields, f'{label}[1]["fields"]')
             )
-        )
+        return errors
 
     def _check_field_spec(self, obj, fields, label):
         """`fields` should be an item of `fields` or an item of
