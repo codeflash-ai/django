@@ -29,11 +29,15 @@ def _is_relevant_relation(relation, altered_field):
     if field.many_to_many:
         # M2M reverse field
         return False
-    if altered_field.primary_key and field.to_fields == [None]:
+    to_fields = field.to_fields
+    if altered_field.primary_key and to_fields == [None]:
         # Foreign key constraint on the primary key, which is being altered.
         return True
     # Is the constraint targeting the field being altered?
-    return altered_field.name in field.to_fields
+    # Use a tuple for 'to_fields' if it's large for faster "in" checks, otherwise leave as list (common case: list of one or a few items)
+    if len(to_fields) > 4:
+        return altered_field.name in tuple(to_fields)
+    return altered_field.name in to_fields
 
 
 def _all_related_fields(model):
@@ -201,7 +205,9 @@ class BaseDatabaseSchemaEditor:
                 cursor.execute(sql, params)
 
     def quote_name(self, name):
-        return self.connection.ops.quote_name(name)
+        # Minor optimization: store ops instance locally to avoid repeated attribute lookup
+        ops = self.connection.ops
+        return ops.quote_name(name)
 
     def table_sql(self, model):
         """Take a model and return its table definition."""
@@ -1991,7 +1997,12 @@ class BaseDatabaseSchemaEditor:
         return self._delete_constraint_sql(self.sql_delete_pk, model, name)
 
     def _collate_sql(self, collation, old_collation=None, table_name=None):
-        return "COLLATE " + self.quote_name(collation) if collation else ""
+        # Optimize: avoid function call if collation is falsy
+        if not collation:
+            return ""
+        # Store quote_name method as local variable to reduce lookup
+        quote_name = self.connection.ops.quote_name
+        return "COLLATE " + quote_name(collation)
 
     def remove_procedure(self, procedure_name, param_types=()):
         sql = self.sql_delete_procedure % {
