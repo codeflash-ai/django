@@ -289,7 +289,16 @@ class DateFormat(TimeFormat):
 
     def t(self):
         "Number of days in the given month; i.e. '28' to '31'"
-        return calendar.monthrange(self.data.year, self.data.month)[1]
+        year = self.data.year
+        month = self.data.month
+        if month != 2:
+            if month in (1, 3, 5, 7, 8, 10, 12):
+                return 31
+            return 30
+        # February: check leap year
+        if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0):
+            return 29
+        return 28
 
     def U(self):
         "Seconds since the Unix epoch (January 1 1970 00:00:00 GMT)"
