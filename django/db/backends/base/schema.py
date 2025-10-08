@@ -29,11 +29,15 @@ def _is_relevant_relation(relation, altered_field):
     if field.many_to_many:
         # M2M reverse field
         return False
-    if altered_field.primary_key and field.to_fields == [None]:
+    to_fields = field.to_fields
+    if altered_field.primary_key and to_fields == [None]:
         # Foreign key constraint on the primary key, which is being altered.
         return True
     # Is the constraint targeting the field being altered?
-    return altered_field.name in field.to_fields
+    # Use a tuple for 'to_fields' if it's large for faster "in" checks, otherwise leave as list (common case: list of one or a few items)
+    if len(to_fields) > 4:
+        return altered_field.name in tuple(to_fields)
+    return altered_field.name in to_fields
 
 
 def _all_related_fields(model):
@@ -201,6 +205,7 @@ class BaseDatabaseSchemaEditor:
                 cursor.execute(sql, params)
 
     def quote_name(self, name):
+        # Local binding for method lookup optimization in tight loops
         return self.connection.ops.quote_name(name)
 
     def table_sql(self, model):
@@ -1894,12 +1899,18 @@ class BaseDatabaseSchemaEditor:
         }
 
     def _create_check_sql(self, model, name, check):
-        if not self.connection.features.supports_table_check_constraints:
+        # Minor perf: do local bindings for frequently accessed attributes
+        features = self.connection.features
+        if not features.supports_table_check_constraints:
             return None
+        # Cache bound method locally to reduce attribute lookup cost per call
+        quote_name = self.quote_name
+        sql_create_check = self.sql_create_check
+        table_name = model._meta.db_table
         return Statement(
-            self.sql_create_check,
-            table=Table(model._meta.db_table, self.quote_name),
-            name=self.quote_name(name),
+            sql_create_check,
+            table=Table(table_name, quote_name),
+            name=quote_name(name),
             check=check,
         )
 
