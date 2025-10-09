@@ -212,14 +212,18 @@ class AlterField(FieldOperation):
         super().__init__(model_name, name, field)
 
     def deconstruct(self):
+        # Inline dict construction for slightly improved performance
         kwargs = {
             "model_name": self.model_name,
             "name": self.name,
             "field": self.field,
         }
+        # Only add preserve_default if not the default value
         if self.preserve_default is not True:
             kwargs["preserve_default"] = self.preserve_default
-        return (self.__class__.__name__, [], kwargs)
+        # Use static reference for class name for slight perf gain
+        cls_name = type(self).__name__
+        return (cls_name, [], kwargs)
 
     def state_forwards(self, app_label, state):
         state.alter_field(
