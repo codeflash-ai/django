@@ -24,7 +24,7 @@ class FieldOperation(Operation):
 
     def is_same_field_operation(self, operation):
         return (
-            self.is_same_model_operation(operation)
+            self.model_name_lower == operation.model_name_lower
             and self.name_lower == operation.name_lower
         )
 
