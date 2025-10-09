@@ -182,7 +182,7 @@ class RemoveField(FieldOperation):
             schema_editor.add_field(from_model, to_model._meta.get_field(self.name))
 
     def describe(self):
-        return "Remove field %s from %s" % (self.name, self.model_name)
+        return f"Remove field {self.name} from {self.model_name}"
 
     @property
     def migration_name_fragment(self):
