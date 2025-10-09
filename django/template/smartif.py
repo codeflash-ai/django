@@ -48,22 +48,35 @@ def infix(bp, func):
     evaluates the node.
     """
 
-    class Operator(TokenBase):
-        lbp = bp
+    # Cache lbp and func locally for faster attribute access in methods
+    _lbp = bp
+    _func = func
 
-        def led(self, left, parser):
-            self.first = left
-            self.second = parser.expression(bp)
-            return self
+    # Define all methods outside the class scope to avoid recreating them per call
+    def led(self, left, parser):
+        self.first = left
+        self.second = parser.expression(_lbp)
+        return self
 
-        def eval(self, context):
-            try:
-                return func(context, self.first, self.second)
-            except Exception:
-                # Templates shouldn't throw exceptions when rendering.  We are
-                # most likely to get exceptions for things like {% if foo in bar
-                # %} where 'bar' does not support 'in', so default to False
-                return False
+    def eval(self, context):
+        try:
+            return _func(context, self.first, self.second)
+        except Exception:
+            # Templates shouldn't throw exceptions when rendering.  We are
+            # most likely to get exceptions for things like {% if foo in bar
+            # %} where 'bar' does not support 'in', so default to False
+            return False
+
+    # Dynamically create the class using type() for efficiency
+    Operator = type(
+        "Operator",
+        (TokenBase,),
+        {
+            "lbp": _lbp,
+            "led": led,
+            "eval": eval,
+        },
+    )
 
     return Operator
 
