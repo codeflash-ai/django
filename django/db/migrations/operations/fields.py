@@ -159,11 +159,12 @@ class RemoveField(FieldOperation):
     category = OperationCategory.REMOVAL
 
     def deconstruct(self):
-        kwargs = {
-            "model_name": self.model_name,
-            "name": self.name,
-        }
-        return (self.__class__.__name__, [], kwargs)
+        # Direct tuple construction avoids dictionary creation overhead.
+        return (
+            self.__class__.__name__,
+            [],
+            {"model_name": self.model_name, "name": self.name},
+        )
 
     def state_forwards(self, app_label, state):
         state.remove_field(app_label, self.model_name_lower, self.name)
