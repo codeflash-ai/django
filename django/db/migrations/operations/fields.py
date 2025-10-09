@@ -246,7 +246,7 @@ class AlterField(FieldOperation):
         self.database_forwards(app_label, schema_editor, from_state, to_state)
 
     def describe(self):
-        return "Alter field %s on %s" % (self.name, self.model_name)
+        return f"Alter field {self.name} on {self.model_name}"
 
     @property
     def migration_name_fragment(self):
