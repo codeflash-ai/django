@@ -1003,6 +1003,7 @@ class ManyToManyDescriptor(ReverseManyToOneDescriptor):
         super().__init__(rel)
 
         self.reverse = reverse
+        self._side_name = "reverse" if reverse else "forward"
 
     @property
     def through(self):
@@ -1023,8 +1024,7 @@ class ManyToManyDescriptor(ReverseManyToOneDescriptor):
 
     def _get_set_deprecation_msg_params(self):
         return (
-            "%s side of a many-to-many set"
-            % ("reverse" if self.reverse else "forward"),
+            f"{self._side_name} side of a many-to-many set",
             self.rel.accessor_name if self.reverse else self.field.name,
         )
 
