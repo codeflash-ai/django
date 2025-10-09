@@ -32,11 +32,12 @@ class FieldOperation(Operation):
         name_lower = name.lower()
         if name_lower == self.model_name_lower:
             return True
-        if self.field:
+        field = self.field
+        if field is not None:
             return bool(
                 field_references(
                     (app_label, self.model_name_lower),
-                    self.field,
+                    field,
                     (app_label, name_lower),
                 )
             )
