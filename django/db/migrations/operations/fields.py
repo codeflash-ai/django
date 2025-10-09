@@ -82,14 +82,28 @@ class AddField(FieldOperation):
         super().__init__(model_name, name, field)
 
     def deconstruct(self):
-        kwargs = {
-            "model_name": self.model_name,
-            "name": self.name,
-            "field": self.field,
-        }
-        if self.preserve_default is not True:
-            kwargs["preserve_default"] = self.preserve_default
-        return (self.__class__.__name__, [], kwargs)
+        # Preallocate kwargs so no intermediate dict resizing on normal call
+        if self.preserve_default is True:
+            return (
+                self.__class__.__name__,
+                [],
+                {
+                    "model_name": self.model_name,
+                    "name": self.name,
+                    "field": self.field,
+                },
+            )
+        # produce kwargs with preserve_default only if needed, avoiding the conditional dict update
+        return (
+            self.__class__.__name__,
+            [],
+            {
+                "model_name": self.model_name,
+                "name": self.name,
+                "field": self.field,
+                "preserve_default": self.preserve_default,
+            },
+        )
 
     def state_forwards(self, app_label, state):
         state.add_field(
