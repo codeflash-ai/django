@@ -175,7 +175,10 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
         """,
             [table_name],
         )
-        return {row[0]: (row[2], row[1]) for row in cursor.fetchall()}
+        return {
+            attname: (attname_other_table, other_table)
+            for attname, other_table, attname_other_table in cursor.fetchall()
+        }
 
     def get_constraints(self, cursor, table_name):
         """
