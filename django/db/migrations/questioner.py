@@ -101,10 +101,13 @@ class InteractiveMigrationQuestioner(MigrationQuestioner):
         result = input()
         if not result and default is not None:
             return default
-        while not result or result[0].lower() not in "yn":
-            self.prompt_output.write("Please answer yes or no: ", ending="")
+
+        write_prompt = self.prompt_output.write
+        lower = str.lower
+        while not result or lower(result[0]) not in "yn":
+            write_prompt("Please answer yes or no: ", ending="")
             result = input()
-        return result[0].lower() == "y"
+        return lower(result[0]) == "y"
 
     def _choice_input(self, question, choices):
         self.prompt_output.write(f"{question}")
