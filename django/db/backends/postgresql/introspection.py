@@ -72,11 +72,16 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
                 AND pg_catalog.pg_table_is_visible(c.oid)
         """
         )
-        return [
-            TableInfo(*row)
-            for row in cursor.fetchall()
-            if row[0] not in self.ignored_tables
-        ]
+        ignored_tables_set = set(self.ignored_tables) if self.ignored_tables else None
+        # Use generator and list comprehension with conditional only if needed
+        fetchall = cursor.fetchall()
+        if ignored_tables_set:
+            return [
+                TableInfo(*row) for row in fetchall if row[0] not in ignored_tables_set
+            ]
+        else:
+            # Fast path: no ignored tables
+            return [TableInfo(*row) for row in fetchall]
 
     def get_table_description(self, cursor, table_name):
         """
