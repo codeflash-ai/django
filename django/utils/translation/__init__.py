@@ -8,6 +8,7 @@ from decimal import ROUND_UP, Decimal
 from django.utils.autoreload import autoreload_started, file_changed
 from django.utils.functional import lazy
 from django.utils.regex_helper import _lazy_re_compile
+import math
 
 __all__ = [
     "activate",
@@ -299,4 +300,10 @@ def trim_whitespace(s):
 
 
 def round_away_from_one(value):
-    return int(Decimal(value - 1).quantize(Decimal("0"), rounding=ROUND_UP)) + 1
+    if isinstance(value, int):
+        return value
+    try:
+        v = float(value)
+        return math.ceil(v - 1) + 1 if v >= 1 else math.floor(v - 1) + 1
+    except (TypeError, ValueError):
+        return int(Decimal(value - 1).quantize(Decimal("0"), rounding=ROUND_UP)) + 1
