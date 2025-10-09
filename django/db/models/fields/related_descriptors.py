@@ -445,7 +445,11 @@ class ReverseOneToOneDescriptor:
         return self.related.is_cached(instance)
 
     def get_queryset(self, **hints):
-        return self.related.related_model._base_manager.db_manager(hints=hints).all()
+        if hints:
+            return self.related.related_model._base_manager.db_manager(
+                hints=hints
+            ).all()
+        return self.related.related_model._base_manager.all()
 
     def get_prefetch_queryset(self, instances, queryset=None):
         warnings.warn(
