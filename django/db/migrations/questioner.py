@@ -107,10 +107,12 @@ class InteractiveMigrationQuestioner(MigrationQuestioner):
         return result[0].lower() == "y"
 
     def _choice_input(self, question, choices):
-        self.prompt_output.write(f"{question}")
+        # Combine all output into a single write for efficiency
+        output_lines = [f"{question}\n"]
         for i, choice in enumerate(choices):
-            self.prompt_output.write(" %s) %s" % (i + 1, choice))
-        self.prompt_output.write("Select an option: ", ending="")
+            output_lines.append(" %s) %s\n" % (i + 1, choice))
+        output_lines.append("Select an option: ")
+        self.prompt_output.write("".join(output_lines), ending="")
         result = input()
         while True:
             try:
@@ -131,22 +133,21 @@ class InteractiveMigrationQuestioner(MigrationQuestioner):
         string) which will be shown to the user and used as the return value
         if the user doesn't provide any other input.
         """
-        self.prompt_output.write("Please enter the default value as valid Python.")
+        # Gather all static writes to minimize the number of calls
+        output_lines = [
+            "Please enter the default value as valid Python.",
+            "The datetime and django.utils.timezone modules are available, so "
+            "it is possible to provide e.g. timezone.now as a value.",
+            "Type 'exit' to exit this prompt",
+        ]
+        self.prompt_output.write("\n".join(output_lines))
         if default:
             self.prompt_output.write(
                 f"Accept the default '{default}' by pressing 'Enter' or "
                 f"provide another value."
             )
-        self.prompt_output.write(
-            "The datetime and django.utils.timezone modules are available, so "
-            "it is possible to provide e.g. timezone.now as a value."
-        )
-        self.prompt_output.write("Type 'exit' to exit this prompt")
         while True:
-            if default:
-                prompt = "[default: {}] >>> ".format(default)
-            else:
-                prompt = ">>> "
+            prompt = f"[default: {default}] >>> " if default else ">>> "
             self.prompt_output.write(prompt, ending="")
             code = input()
             if not code and default:
