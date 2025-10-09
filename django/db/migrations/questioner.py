@@ -107,10 +107,12 @@ class InteractiveMigrationQuestioner(MigrationQuestioner):
         return result[0].lower() == "y"
 
     def _choice_input(self, question, choices):
-        self.prompt_output.write(f"{question}")
+        # Buffer output for a single write, instead of multiple calls
+        buf = [f"{question}\n"]
         for i, choice in enumerate(choices):
-            self.prompt_output.write(" %s) %s" % (i + 1, choice))
-        self.prompt_output.write("Select an option: ", ending="")
+            buf.append(f" {i + 1}) {choice}\n")
+        buf.append("Select an option: ")
+        self.prompt_output.write("".join(buf), ending="")
         result = input()
         while True:
             try:
@@ -131,17 +133,20 @@ class InteractiveMigrationQuestioner(MigrationQuestioner):
         string) which will be shown to the user and used as the return value
         if the user doesn't provide any other input.
         """
-        self.prompt_output.write("Please enter the default value as valid Python.")
+        # Buffer output to combine prompt messages into a single call
+        out_buf = []
+        out_buf.append("Please enter the default value as valid Python.\n")
         if default:
-            self.prompt_output.write(
+            out_buf.append(
                 f"Accept the default '{default}' by pressing 'Enter' or "
-                f"provide another value."
+                f"provide another value.\n"
             )
-        self.prompt_output.write(
+        out_buf.append(
             "The datetime and django.utils.timezone modules are available, so "
-            "it is possible to provide e.g. timezone.now as a value."
+            "it is possible to provide e.g. timezone.now as a value.\n"
         )
-        self.prompt_output.write("Type 'exit' to exit this prompt")
+        out_buf.append("Type 'exit' to exit this prompt\n")
+        self.prompt_output.write("".join(out_buf))
         while True:
             if default:
                 prompt = "[default: {}] >>> ".format(default)
@@ -189,23 +194,25 @@ class InteractiveMigrationQuestioner(MigrationQuestioner):
     def ask_not_null_alteration(self, field_name, model_name):
         """Changing a NULL field to NOT NULL."""
         if not self.dry_run:
-            choice = self._choice_input(
+            # The question and choices are constant unless parameters change
+            question = (
                 f"It is impossible to change a nullable field '{field_name}' "
                 f"on {model_name} to non-nullable without providing a "
                 f"default. This is because the database needs something to "
                 f"populate existing rows.\n"
-                f"Please select a fix:",
-                [
-                    (
-                        "Provide a one-off default now (will be set on all existing "
-                        "rows with a null value for this column)"
-                    ),
-                    "Ignore for now. Existing rows that contain NULL values "
-                    "will have to be handled manually, for example with a "
-                    "RunPython or RunSQL operation.",
-                    "Quit and manually define a default value in models.py.",
-                ],
+                f"Please select a fix:"
             )
+            choices = [
+                (
+                    "Provide a one-off default now (will be set on all existing "
+                    "rows with a null value for this column)"
+                ),
+                "Ignore for now. Existing rows that contain NULL values "
+                "will have to be handled manually, for example with a "
+                "RunPython or RunSQL operation.",
+                "Quit and manually define a default value in models.py.",
+            ]
+            choice = self._choice_input(question, choices)
             if choice == 2:
                 return NOT_PROVIDED
             elif choice == 3:
