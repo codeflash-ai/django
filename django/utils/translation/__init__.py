@@ -295,7 +295,10 @@ trim_whitespace_re = _lazy_re_compile(r"\s*\n\s*")
 
 
 def trim_whitespace(s):
-    return trim_whitespace_re.sub(" ", s.strip())
+    stripped = s.strip()
+    if "\n" not in stripped:
+        return stripped
+    return trim_whitespace_re.sub(" ", stripped)
 
 
 def round_away_from_one(value):
