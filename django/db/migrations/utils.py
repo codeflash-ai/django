@@ -69,39 +69,41 @@ def field_references(
     remote_field = field.remote_field
     if not remote_field:
         return False
+
+    # Cache lookups and functions for efficiency
+    _resolve_relation = resolve_relation
+    _getattr = getattr
+    _reference_field_name_is_none = reference_field_name is None
+    # Local bindings
+    model_tuple_0, model_tuple_1 = model_tuple
+
+    # Check direct reference via `to`
     references_to = None
-    references_through = None
-    if resolve_relation(remote_field.model, *model_tuple) == reference_model_tuple:
-        to_fields = getattr(field, "to_fields", None)
+    if _resolve_relation(remote_field.model, model_tuple_0, model_tuple_1) == reference_model_tuple:
+        to_fields = _getattr(field, "to_fields", None)
         if (
-            reference_field_name is None
-            or
-            # Unspecified to_field(s).
-            to_fields is None
-            or
-            # Reference to primary key.
-            (
+            _reference_field_name_is_none
+            or to_fields is None
+            or (
                 None in to_fields
                 and (reference_field is None or reference_field.primary_key)
             )
-            or
-            # Reference to field.
-            reference_field_name in to_fields
+            or (not _reference_field_name_is_none and reference_field_name in to_fields)
         ):
             references_to = (remote_field, to_fields)
-    through = getattr(remote_field, "through", None)
-    if through and resolve_relation(through, *model_tuple) == reference_model_tuple:
+
+    # Check possible reference via `through`
+    through = _getattr(remote_field, "through", None)
+    references_through = None
+    if through is not None and _resolve_relation(through, model_tuple_0, model_tuple_1) == reference_model_tuple:
         through_fields = remote_field.through_fields
         if (
-            reference_field_name is None
-            or
-            # Unspecified through_fields.
-            through_fields is None
-            or
-            # Reference to field.
-            reference_field_name in through_fields
+            _reference_field_name_is_none
+            or through_fields is None
+            or (not _reference_field_name_is_none and reference_field_name in through_fields)
         ):
             references_through = (remote_field, through_fields)
+
     if not (references_to or references_through):
         return False
     return FieldReference(references_to, references_through)
