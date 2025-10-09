@@ -122,7 +122,7 @@ class AddField(FieldOperation):
             )
 
     def describe(self):
-        return "Add field %s to %s" % (self.name, self.model_name)
+        return f"Add field {self.name} to {self.model_name}"
 
     @property
     def migration_name_fragment(self):
