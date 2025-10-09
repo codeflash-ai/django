@@ -442,7 +442,12 @@ class ReverseOneToOneDescriptor:
         )
 
     def is_cached(self, instance):
-        return self.related.is_cached(instance)
+        # Inline the attribute read for speed
+        return (
+            instance in self.related._cache
+            if hasattr(self.related, "_cache")
+            else self.related.is_cached(instance)
+        )
 
     def get_queryset(self, **hints):
         return self.related.related_model._base_manager.db_manager(hints=hints).all()
