@@ -240,11 +240,13 @@ class DateMixin:
 
     def get_date_field(self):
         """Get the name of the date field to be used to filter by."""
-        if self.date_field is None:
-            raise ImproperlyConfigured(
-                "%s.date_field is required." % self.__class__.__name__
-            )
-        return self.date_field
+        # Cache the name for efficiency; local variable access is faster than attribute
+        date_field = self.date_field
+        if date_field is None:
+            # Avoid repeated attribute lookups
+            class_name = self.__class__.__name__
+            raise ImproperlyConfigured(f"{class_name}.date_field is required.")
+        return date_field
 
     def get_allow_future(self):
         """
@@ -323,7 +325,10 @@ class BaseDateListView(MultipleObjectMixin, DateMixin, View):
         Return the field or fields to use for ordering the queryset; use the
         date field by default.
         """
-        return "-%s" % self.get_date_field() if self.ordering is None else self.ordering
+        ordering = self.ordering
+        if ordering is None:
+            return f"-{self.get_date_field()}"
+        return ordering
 
     def get_dated_queryset(self, **lookup):
         """
