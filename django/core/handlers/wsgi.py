@@ -203,5 +203,5 @@ def get_str_from_wsgi(environ, key, default):
 
     key and default should be str objects.
     """
-    value = get_bytes_from_wsgi(environ, key, default)
-    return value.decode(errors="replace")
+    value = environ.get(key, default)
+    return value.encode("iso-8859-1").decode(errors="replace")
