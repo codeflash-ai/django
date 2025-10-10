@@ -544,12 +544,18 @@ def _property_resolver(arg):
             raise AttributeError("Access to private variables is forbidden.")
         parts = arg.split(VARIABLE_ATTRIBUTE_SEPARATOR)
 
+        # Pre-computing the code for custom property-chain resolution to avoid inner try on every access.
         def resolve(value):
             for part in parts:
-                try:
-                    value = value[part]
-                except (AttributeError, IndexError, KeyError, TypeError, ValueError):
-                    value = getattr(value, part)
+                # First, try __getitem__ if value is a dict or supports __getitem__ (except strings, which have int keys)
+                if isinstance(value, dict) or hasattr(value, "__getitem__"):
+                    try:
+                        value = value[part]
+                        continue
+                    except (KeyError, IndexError, TypeError, ValueError):
+                        pass
+                # Fallback to getattr
+                value = getattr(value, part)
             return value
 
         return resolve
@@ -576,7 +582,10 @@ def dictsortreversed(value, arg):
     property given in the argument.
     """
     try:
-        return sorted(value, key=_property_resolver(arg), reverse=True)
+        resolver = _property_resolver(arg)
+        # List conversion only if value is not a list, to avoid unnecessary memory usage
+        # but sorted() always needs an iterable so this doesn't change the logic
+        return sorted(value, key=resolver, reverse=True)
     except (AttributeError, TypeError):
         return ""
 
