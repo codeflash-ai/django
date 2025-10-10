@@ -751,10 +751,16 @@ def get_digit(value, arg):
         return value  # Fail silently for an invalid argument
     if arg < 1:
         return value
-    try:
-        return int(str(value)[-arg])
-    except IndexError:
-        return 0
+    if value >= 0:
+        divisor = 10 ** (arg - 1)
+        if divisor > value:
+            return 0
+        return (value // divisor) % 10
+    else:
+        try:
+            return int(str(value)[-arg])
+        except IndexError:
+            return 0
 
 
 ###################
