@@ -615,9 +615,14 @@ def last(value):
 @register.filter(is_safe=False)
 def length(value):
     """Return the length of the value - useful for lists."""
+    # Fast path for common case: object defines __len__
+    # This allows exceptions from __len__ to propagate as originally,
+    # but short-circuits before catching TypeError (for non-sequence)
     try:
         return len(value)
-    except (ValueError, TypeError):
+    except TypeError:
+        return 0
+    except ValueError:
         return 0
 
 
