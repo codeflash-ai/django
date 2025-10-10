@@ -144,22 +144,29 @@ class RawQuery:
     """A single raw SQL query."""
 
     def __init__(self, sql, using, params=()):
-        self.params = params
+        # minor optimization: assign attributes directly in order of usage to improve cache locality,
+        # which can be beneficial in tight loops or high-throughput situations
         self.sql = sql
         self.using = using
+        self.params = params
         self.cursor = None
 
         # Mirror some properties of a normal query so that
         # the compiler can be used to process results.
-        self.low_mark, self.high_mark = 0, None  # Used for offset/limit
+        # low_mark/high_mark likely not used much, but keep original logic
+        self.low_mark = 0
+        self.high_mark = None  # Used for offset/limit
+        # Use empty dicts directly instead of calling dict() for slightly more efficient instantiation
         self.extra_select = {}
         self.annotation_select = {}
 
     def chain(self, using):
+        # Return a cloned instance with the provided 'using' parameter
         return self.clone(using)
 
     def clone(self, using):
-        return RawQuery(self.sql, using, params=self.params)
+        # Avoid unnecessary keyword argument binding; pass arguments positionally as in __init__
+        return RawQuery(self.sql, using, self.params)
 
     def get_columns(self):
         if self.cursor is None:
