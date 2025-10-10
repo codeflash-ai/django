@@ -90,9 +90,8 @@ def get_git_changeset():
         return None
     repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     git_log = subprocess.run(
-        "git log --pretty=format:%ct --quiet -1 HEAD",
+        ["git", "log", "--pretty=format:%ct", "--quiet", "-1", "HEAD"],
         capture_output=True,
-        shell=True,
         cwd=repo_dir,
         text=True,
     )
