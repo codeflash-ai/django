@@ -1503,19 +1503,25 @@ class MigrationAutodetector:
 
     @staticmethod
     def _get_dependencies_for_foreign_key(app_label, model_name, field, project_state):
-        remote_field_model = None
-        if hasattr(field.remote_field, "model"):
-            remote_field_model = field.remote_field.model
-        else:
+        # Optimize attribute access by localizing frequently-used attributes.
+        remote_field = field.remote_field
+        # Only do .model lookup if that attr exists; we check hasattr only once
+        remote_field_model = getattr(remote_field, "model", None)
+        if remote_field_model is None:
             relations = project_state.relations[app_label, model_name]
+            # Optimize: Use direct loop+break instead of any()
+            found = False
             for (remote_app_label, remote_model_name), fields in relations.items():
-                if any(
-                    field == related_field.remote_field
-                    for related_field in fields.values()
-                ):
-                    remote_field_model = f"{remote_app_label}.{remote_model_name}"
+                # Use .values() once
+                for related_field in fields.values():
+                    if field == related_field.remote_field:
+                        remote_field_model = f"{remote_app_label}.{remote_model_name}"
+                        found = True
+                        break
+                if found:
                     break
         # Account for FKs to swappable models
+        # Store swappable_setting lookup to local variable
         swappable_setting = getattr(field, "swappable_setting", None)
         if swappable_setting is not None:
             dep_app_label = "__setting__"
@@ -1531,9 +1537,11 @@ class MigrationAutodetector:
                 dep_app_label, dep_object_name, None, OperationDependency.Type.CREATE
             )
         ]
-        if getattr(field.remote_field, "through", None):
+        # Localize .through attribute to use in both getattr/resolve_relation for efficiency
+        through = getattr(remote_field, "through", None)
+        if through:
             through_app_label, through_object_name = resolve_relation(
-                field.remote_field.through,
+                through,
                 app_label,
                 model_name,
             )

@@ -31,6 +31,7 @@ def resolve_relation(model, app_label=None, model_name=None):
     app_label and model_name are used to resolve the scope of recursive and
     unscoped model relationship.
     """
+    # Optimize: Use .partition instead of two string passes, and minimize lower() calls
     if isinstance(model, str):
         if model == RECURSIVE_RELATIONSHIP_CONSTANT:
             if app_label is None or model_name is None:
@@ -39,15 +40,18 @@ def resolve_relation(model, app_label=None, model_name=None):
                     "recursive relationships."
                 )
             return app_label, model_name
-        if "." in model:
-            app_label, model_name = model.split(".", 1)
-            return app_label, model_name.lower()
+        first, sep, second = model.partition(".")
+        if sep:
+            # 'model' contains a dot, split once efficiently
+            return first, second.lower()
         if app_label is None:
             raise TypeError(
                 "app_label must be provided to resolve unscoped model relationships."
             )
         return app_label, model.lower()
-    return model._meta.app_label, model._meta.model_name
+    # Only hit this branch if model is not a str (avoids repeated attr lookups)
+    opts = model._meta
+    return opts.app_label, opts.model_name
 
 
 def field_references(
