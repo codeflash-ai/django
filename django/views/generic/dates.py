@@ -108,13 +108,16 @@ class MonthMixin:
 
         The interval is defined by start date <= item date < next start date.
         """
-        if date.month == 12:
-            try:
-                return date.replace(year=date.year + 1, month=1, day=1)
-            except ValueError:
-                raise Http404(_("Date out of range"))
+        year, month = date.year, date.month
+        if month == 12:
+            year += 1
+            month = 1
         else:
-            return date.replace(month=date.month + 1, day=1)
+            month += 1
+        try:
+            return date.__class__(year, month, 1)
+        except ValueError:
+            raise Http404(_("Date out of range"))
 
     def _get_current_month(self, date):
         """Return the start date of the previous interval."""
