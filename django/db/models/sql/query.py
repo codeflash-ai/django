@@ -795,15 +795,17 @@ class Query(BaseExpression):
         # loaded. If a relational field is encountered it gets added to the
         # mask for it be considered if `select_related` and the cycle continues
         # by recursively calling this function.
+        pop = mask.pop
+        setdefault = select_mask.setdefault
         for field in opts.concrete_fields:
-            field_mask = mask.pop(field.name, None)
-            field_att_mask = mask.pop(field.attname, None)
+            field_mask = pop(field.name, None)
+            field_att_mask = pop(field.attname, None)
             if field_mask is None and field_att_mask is None:
-                select_mask.setdefault(field, {})
+                setdefault(field, {})
             elif field_mask:
                 if not field.is_relation:
                     raise FieldError(next(iter(field_mask)))
-                field_select_mask = select_mask.setdefault(field, {})
+                field_select_mask = setdefault(field, {})
                 related_model = field.remote_field.model._meta.concrete_model
                 self._get_defer_select_mask(
                     related_model._meta, field_mask, field_select_mask
@@ -814,7 +816,7 @@ class Query(BaseExpression):
         for field_name, field_mask in mask.items():
             if filtered_relation := self._filtered_relations.get(field_name):
                 relation = opts.get_field(filtered_relation.relation_name)
-                field_select_mask = select_mask.setdefault((field_name, relation), {})
+                field_select_mask = setdefault((field_name, relation), {})
                 field = relation.field
             else:
                 reverse_rel = opts.get_field(field_name)
@@ -826,7 +828,7 @@ class Query(BaseExpression):
                 if not hasattr(reverse_rel, "field"):
                     continue
                 field = reverse_rel.field
-                field_select_mask = select_mask.setdefault(field, {})
+                field_select_mask = setdefault(field, {})
             related_model = field.model._meta.concrete_model
             self._get_defer_select_mask(
                 related_model._meta, field_mask, field_select_mask
