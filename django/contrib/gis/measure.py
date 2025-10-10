@@ -204,27 +204,37 @@ class MeasureBase:
         """
         val = 0.0
         default_unit = self.STANDARD_UNIT
+        units = self.UNITS
+        alias = self.ALIAS
+        lalias = self.LALIAS
+        # Local fast-path for str.lower
+        str_lower = str.lower
+
         for unit, value in kwargs.items():
-            if not isinstance(value, float):
+            # Inline type check and only convert if needed
+            if type(value) is not float:
                 value = float(value)
-            if unit in self.UNITS:
-                val += self.UNITS[unit] * value
+            # Fast-path direct lookup
+            if unit in units:
+                val += units[unit] * value
                 default_unit = unit
-            elif unit in self.ALIAS:
-                u = self.ALIAS[unit]
-                val += self.UNITS[u] * value
+                continue
+            if unit in alias:
+                u = alias[unit]
+                val += units[u] * value
                 default_unit = u
-            else:
-                lower = unit.lower()
-                if lower in self.UNITS:
-                    val += self.UNITS[lower] * value
-                    default_unit = lower
-                elif lower in self.LALIAS:
-                    u = self.LALIAS[lower]
-                    val += self.UNITS[u] * value
-                    default_unit = u
-                else:
-                    raise AttributeError("Unknown unit type: %s" % unit)
+                continue
+            lower = str_lower(unit)
+            if lower in units:
+                val += units[lower] * value
+                default_unit = lower
+                continue
+            if lower in lalias:
+                u = lalias[lower]
+                val += units[u] * value
+                default_unit = u
+                continue
+            raise AttributeError("Unknown unit type: %s" % unit)
         return val, default_unit
 
     @classmethod
