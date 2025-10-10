@@ -19,6 +19,10 @@ from django.db.migrations.utils import (
 )
 from django.utils.functional import cached_property
 
+_SQUASHED_RE = re.compile(r".*_squashed_(\d+)")
+
+_NUMBER_RE = re.compile(r"^\d+")
+
 
 class OperationDependency(
     namedtuple("OperationDependency", "app_label model_name field_name type")
@@ -1876,9 +1880,9 @@ class MigrationAutodetector:
         it. For a squashed migration such as '0001_squashed_0004…', return the
         second number. If no number is found, return None.
         """
-        if squashed_match := re.search(r".*_squashed_(\d+)", name):
+        if squashed_match := _SQUASHED_RE.search(name):
             return int(squashed_match[1])
-        match = re.match(r"^\d+", name)
+        match = _NUMBER_RE.match(name)
         if match:
             return int(match[0])
         return None
