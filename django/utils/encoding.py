@@ -207,6 +207,8 @@ def escape_uri_path(path):
 
 def punycode(domain):
     """Return the Punycode of the given domain if it's non-ASCII."""
+    if domain.isascii():
+        return domain
     return domain.encode("idna").decode("ascii")
 
 
