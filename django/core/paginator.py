@@ -183,6 +183,8 @@ class Page(collections.abc.Sequence):
         self.object_list = object_list
         self.number = number
         self.paginator = paginator
+        # Cache num_pages for faster has_next()
+        self._num_pages = getattr(paginator, "num_pages", None)
 
     def __repr__(self):
         return "<Page %s of %s>" % (self.number, self.paginator.num_pages)
@@ -203,7 +205,11 @@ class Page(collections.abc.Sequence):
         return self.object_list[index]
 
     def has_next(self):
-        return self.number < self.paginator.num_pages
+        num_pages = self._num_pages
+        if num_pages is None:
+            # fallback in case paginator changes at runtime
+            num_pages = self.paginator.num_pages
+        return self.number < num_pages
 
     def has_previous(self):
         return self.number > 1
