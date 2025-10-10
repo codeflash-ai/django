@@ -223,7 +223,7 @@ class WeekMixin:
 
         The first day according to the week format is 0 and the last day is 6.
         """
-        week_format = self.get_week_format()
+        week_format = self.week_format
         if week_format in {"%W", "%V"}:  # week starts on Monday
             return date.weekday()
         elif week_format == "%U":  # week starts on Sunday
