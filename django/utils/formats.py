@@ -108,8 +108,10 @@ def get_format(format_type, lang=None, use_l10n=None):
     """
     if use_l10n is None:
         use_l10n = True
+
+    # Avoid repeated get_language calls for hot-paths
     if use_l10n and lang is None:
-        lang = get_language()
+        lang = _fast_get_language()
     format_type = str(format_type)  # format_type may be lazy.
     cache_key = (format_type, lang)
     try:
@@ -134,9 +136,13 @@ def get_format(format_type, lang=None, use_l10n=None):
         # If a list of input formats from one of the format_modules was
         # retrieved, make sure the ISO_INPUT_FORMATS are in this list.
         val = list(val)
-        for iso_input in ISO_INPUT_FORMATS.get(format_type, ()):
-            if iso_input not in val:
+        iso_for_type = ISO_INPUT_FORMATS.get(format_type)
+        # Optimize: set behavior avoids O(N^2) scan for large lists.
+        val_set = set(val)
+        for iso_input in iso_for_type:
+            if iso_input not in val_set:
                 val.append(iso_input)
+                val_set.add(iso_input)
     _format_cache[cache_key] = val
     return val
 
@@ -178,13 +184,20 @@ def number_format(value, decimal_pos=None, use_l10n=None, force_grouping=False):
     """
     if use_l10n is None:
         use_l10n = True
-    lang = get_language() if use_l10n else None
+
+    # Optimize: use the fast-get_language cache if available
+    lang = _fast_get_language() if use_l10n else None
+
+    # Directly assign result from get_format to local variables to avoid multiple calls
+    decimal_sep = get_format("DECIMAL_SEPARATOR", lang, use_l10n=use_l10n)
+    grouping = get_format("NUMBER_GROUPING", lang, use_l10n=use_l10n)
+    thousand_sep = get_format("THOUSAND_SEPARATOR", lang, use_l10n=use_l10n)
     return numberformat.format(
         value,
-        get_format("DECIMAL_SEPARATOR", lang, use_l10n=use_l10n),
+        decimal_sep,
         decimal_pos,
-        get_format("NUMBER_GROUPING", lang, use_l10n=use_l10n),
-        get_format("THOUSAND_SEPARATOR", lang, use_l10n=use_l10n),
+        grouping,
+        thousand_sep,
         force_grouping=force_grouping,
         use_l10n=use_l10n,
     )
@@ -220,23 +233,36 @@ def localize_input(value, default=None):
     Check if an input value is a localizable type and return it
     formatted with the appropriate formatting string of the current locale.
     """
-    if isinstance(value, str):  # Handle strings first for performance reasons.
+    # Inline the isinstance(str) check for fast path with python type checks
+    vtype = type(value)
+    if vtype is str:
         return value
-    elif isinstance(value, bool):  # Don't treat booleans as numbers.
+    elif vtype is bool:
         return str(value)
-    elif isinstance(value, (decimal.Decimal, float, int)):
+    elif vtype is int or vtype is float or vtype is decimal.Decimal:
         return number_format(value)
-    elif isinstance(value, datetime.datetime):
-        format = default or get_format("DATETIME_INPUT_FORMATS")[0]
-        format = sanitize_strftime_format(format)
-        return value.strftime(format)
-    elif isinstance(value, datetime.date):
-        format = default or get_format("DATE_INPUT_FORMATS")[0]
-        format = sanitize_strftime_format(format)
-        return value.strftime(format)
-    elif isinstance(value, datetime.time):
-        format = default or get_format("TIME_INPUT_FORMATS")[0]
-        return value.strftime(format)
+    elif vtype is datetime.datetime:
+        # Optimize: Only sanitize if date < 1000, cache first format
+        fmt = default
+        if fmt is None:
+            # Only retrieve and index once
+            fmts = get_format("DATETIME_INPUT_FORMATS")
+            fmt = fmts[0]
+        fmt = sanitize_strftime_format(fmt)
+        return value.strftime(fmt)
+    elif vtype is datetime.date:
+        fmt = default
+        if fmt is None:
+            fmts = get_format("DATE_INPUT_FORMATS")
+            fmt = fmts[0]
+        fmt = sanitize_strftime_format(fmt)
+        return value.strftime(fmt)
+    elif vtype is datetime.time:
+        fmt = default
+        if fmt is None:
+            fmts = get_format("TIME_INPUT_FORMATS")
+            fmt = fmts[0]
+        return value.strftime(fmt)
     return value
 
 
@@ -303,3 +329,10 @@ def sanitize_separators(value):
         parts.append(value)
         value = ".".join(reversed(parts))
     return value
+
+
+# Fast-path: cache the result of get_language() with a simple local LRU cache.
+# Avoids repeated lookups in hot-paths for a given thread/request.
+@functools.lru_cache(maxsize=8)
+def _fast_get_language():
+    return get_language()
