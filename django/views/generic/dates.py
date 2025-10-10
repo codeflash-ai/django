@@ -215,7 +215,16 @@ class WeekMixin:
 
     def _get_current_week(self, date):
         """Return the start date of the current interval."""
-        return date - datetime.timedelta(self._get_weekday(date))
+        # Avoid function call overhead for timedelta days calculation by inlining logic
+        week_format = self.get_week_format()
+        # Use local variable to avoid repeated attribute access
+        if week_format in {"%W", "%V"}:  # week starts on Monday
+            weekday = date.weekday()
+        elif week_format == "%U":  # week starts on Sunday
+            weekday = (date.weekday() + 1) % 7
+        else:
+            raise ValueError("unknown week format: %s" % week_format)
+        return date - datetime.timedelta(weekday)
 
     def _get_weekday(self, date):
         """
