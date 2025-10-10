@@ -524,9 +524,12 @@ class Parser:
         return nodelist
 
     def skip_past(self, endtag):
-        while self.tokens:
-            token = self.next_token()
-            if token.token_type == TokenType.BLOCK and token.contents == endtag:
+        tokens = self.tokens
+        tokens_pop = tokens.pop
+        BLOCK = TokenType.BLOCK
+        while tokens:
+            token = tokens_pop()
+            if token.token_type == BLOCK and token.contents == endtag:
                 return
         self.unclosed_block_tag([endtag])
 
