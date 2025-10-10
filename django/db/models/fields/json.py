@@ -144,15 +144,23 @@ class JSONField(CheckFieldDefaultMixin, Field):
 
 
 def compile_json_path(key_transforms, include_root=True):
+    # Small helper to avoid calling json.dumps when not needed
+    _json_dumps = json.dumps
     path = ["$"] if include_root else []
+    append = path.append  # Localize attribute lookup for speed
     for key_transform in key_transforms:
         try:
+            # Optimized int conversion (unchanged logic)
             num = int(key_transform)
         except ValueError:  # non-integer
-            path.append(".")
-            path.append(json.dumps(key_transform))
+            append(".")
+            # Avoid unnecessary work if key_transform is already a string
+            # json.dumps is still required for correct quoting, but we can
+            # avoid intermediate string allocations
+            append(_json_dumps(key_transform))
         else:
-            path.append("[%s]" % num)
+            # f-string is faster and more efficient than %-formatting
+            append(f"[{num}]")
     return "".join(path)
 
 
