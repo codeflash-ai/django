@@ -59,12 +59,25 @@ class Paginator:
 
     def validate_number(self, number):
         """Validate the given 1-based page number."""
+        # Fast path for most common case: already int and valid
+        if type(number) is int:
+            if number < 1:
+                raise EmptyPage(self.error_messages["min_page"])
+            if number > self.num_pages:
+                raise EmptyPage(self.error_messages["no_results"])
+            return number
+
         try:
-            if isinstance(number, float) and not number.is_integer():
-                raise ValueError
-            number = int(number)
+            # The float-instance check is only relevant if it's a float
+            if type(number) is float:
+                if not number.is_integer():
+                    raise ValueError
+                number = int(number)
+            else:
+                number = int(number)
         except (TypeError, ValueError):
             raise PageNotAnInteger(self.error_messages["invalid_page"])
+
         if number < 1:
             raise EmptyPage(self.error_messages["min_page"])
         if number > self.num_pages:
