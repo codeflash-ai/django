@@ -3,6 +3,7 @@ import json
 from django.contrib.messages.storage.base import BaseStorage
 from django.contrib.messages.storage.cookie import MessageDecoder, MessageEncoder
 from django.core.exceptions import ImproperlyConfigured
+import functools
 
 
 class SessionStorage(BaseStorage):
@@ -48,5 +49,10 @@ class SessionStorage(BaseStorage):
 
     def deserialize_messages(self, data):
         if data and isinstance(data, str):
-            return json.loads(data, cls=MessageDecoder)
+            return self._cached_json_loads(data)
         return data
+
+    @staticmethod
+    @functools.lru_cache(maxsize=128)
+    def _cached_json_loads(data: str):
+        return json.loads(data, cls=MessageDecoder)
