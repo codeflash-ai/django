@@ -99,7 +99,7 @@ class JSONField(CheckFieldDefaultMixin, Field):
     def get_db_prep_value(self, value, connection, prepared=False):
         if not prepared:
             value = self.get_prep_value(value)
-        if isinstance(value, expressions.Value) and isinstance(
+        if type(value) is expressions.Value and isinstance(
             value.output_field, JSONField
         ):
             value = value.value
