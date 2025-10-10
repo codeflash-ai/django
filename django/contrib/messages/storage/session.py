@@ -20,6 +20,7 @@ class SessionStorage(BaseStorage):
                 "middleware in the MIDDLEWARE list."
             )
         super().__init__(request, *args, **kwargs)
+        self._encoder = MessageEncoder()
 
     def _get(self, *args, **kwargs):
         """
@@ -43,8 +44,7 @@ class SessionStorage(BaseStorage):
         return []
 
     def serialize_messages(self, messages):
-        encoder = MessageEncoder()
-        return encoder.encode(messages)
+        return self._encoder.encode(messages)
 
     def deserialize_messages(self, data):
         if data and isinstance(data, str):
