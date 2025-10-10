@@ -195,7 +195,9 @@ class MeasureBase:
             )
 
     def __bool__(self):
-        return bool(self.standard)
+        # Inline and cache attribute for faster access
+        standard = getattr(self, self.STANDARD_UNIT)
+        return bool(standard)
 
     def default_units(self, kwargs):
         """
