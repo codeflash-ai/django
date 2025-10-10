@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import string
 from datetime import datetime, timedelta
@@ -482,7 +483,7 @@ class SessionBase:
         )
 
     async def asave(self, must_create=False):
-        return await sync_to_async(self.save)(must_create)
+        return await asyncio.to_thread(self.save, must_create)
 
     def delete(self, session_key=None):
         """
