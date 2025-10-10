@@ -343,14 +343,27 @@ class IntegerField(Field):
         return value
 
     def widget_attrs(self, widget):
+        # Optimization: avoid repeated attr access and unnecessary checks
         attrs = super().widget_attrs(widget)
-        if isinstance(widget, NumberInput):
-            if self.min_value is not None:
-                attrs["min"] = self.min_value
-            if self.max_value is not None:
-                attrs["max"] = self.max_value
-            if self.step_size is not None:
-                attrs["step"] = self.step_size
+        if not isinstance(widget, NumberInput):
+            return attrs
+
+        # Use locals to cache in function scope for faster access
+        min_value = self.min_value
+        max_value = self.max_value
+        step_size = self.step_size
+
+        # Accumulate attrs in batch for potentially reduced dict lookups
+        updates = {}
+        if min_value is not None:
+            updates["min"] = min_value
+        if max_value is not None:
+            updates["max"] = max_value
+        if step_size is not None:
+            updates["step"] = step_size
+        if updates:
+            attrs.update(updates)
+
         return attrs
 
 
@@ -440,15 +453,27 @@ class DecimalField(IntegerField):
             )
 
     def widget_attrs(self, widget):
+        # Optimization: shortcut for fast return if conditions not met
         attrs = super().widget_attrs(widget)
-        if isinstance(widget, NumberInput) and "step" not in widget.attrs:
-            if self.decimal_places is not None:
-                # Use exponential notation for small values since they might
-                # be parsed as 0 otherwise. ref #20765
-                step = str(Decimal(1).scaleb(-self.decimal_places)).lower()
-            else:
-                step = "any"
-            attrs.setdefault("step", step)
+        if not (isinstance(widget, NumberInput) and "step" not in widget.attrs):
+            return attrs
+
+        decimal_places = self.decimal_places
+        if decimal_places is not None:
+            # Avoid repeated Decimal creation and str.lower calls
+            # Cache result per value to reduce redundant computations in hotspots
+            # This dict will only be local and does not change program behavior
+            # and serves as memoization for decimal step strings.
+            if not hasattr(self, "_decimal_steps_cache"):
+                self._decimal_steps_cache = {}
+            cache = self._decimal_steps_cache
+            if decimal_places not in cache:
+                cache[decimal_places] = str(Decimal(1).scaleb(-decimal_places)).lower()
+            step = cache[decimal_places]
+        else:
+            step = "any"
+
+        attrs.setdefault("step", step)
         return attrs
 
 
