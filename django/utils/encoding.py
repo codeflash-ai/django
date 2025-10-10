@@ -216,18 +216,81 @@ def repercent_broken_unicode(path):
     repercent-encode any octet produced that is not part of a strictly legal
     UTF-8 octet sequence.
     """
-    changed_parts = []
-    while True:
-        try:
-            path.decode()
-        except UnicodeDecodeError as e:
-            # CVE-2019-14235: A recursion shouldn't be used since the exception
-            # handling uses massive amounts of memory
-            repercent = quote(path[e.start : e.end], safe=b"/#%[]=:;$&()+,!?*@'~")
-            changed_parts.append(path[: e.start] + repercent.encode())
-            path = path[e.end :]
+    # Fast-path: try to decode fully
+    try:
+        path.decode()
+        return path
+    except UnicodeDecodeError:
+        pass
+
+    # If the fast-path fails, scan for invalid bytes manually (no Python exceptions in loop)
+    result = []
+    i = 0
+    n = len(path)
+    safe = b"/#%[]=:;$&()+,!?*@'~"
+    append = result.append
+
+    while i < n:
+        ch = path[i]
+        # Single-byte ASCII
+        if ch < 0x80:
+            append(bytes([ch]))
+            i += 1
+            continue
+        # Determine starting byte type and expected multi-byte length
+        elif 0xC2 <= ch <= 0xDF and i + 1 < n and 0x80 <= path[i + 1] <= 0xBF:
+            # 2-byte sequence
+            append(path[i : i + 2])
+            i += 2
+            continue
+        elif (
+            ch == 0xE0
+            and i + 2 < n
+            and 0xA0 <= path[i + 1] <= 0xBF
+            and 0x80 <= path[i + 2] <= 0xBF
+            or (0xE1 <= ch <= 0xEC or ch == 0xEE or ch == 0xEF)
+            and i + 2 < n
+            and 0x80 <= path[i + 1] <= 0xBF
+            and 0x80 <= path[i + 2] <= 0xBF
+            or ch == 0xED
+            and i + 2 < n
+            and 0x80 <= path[i + 1] <= 0x9F
+            and 0x80 <= path[i + 2] <= 0xBF
+        ):
+            # 3-byte sequence
+            append(path[i : i + 3])
+            i += 3
+            continue
+        elif (
+            ch == 0xF0
+            and i + 3 < n
+            and 0x90 <= path[i + 1] <= 0xBF
+            and 0x80 <= path[i + 2] <= 0xBF
+            and 0x80 <= path[i + 3] <= 0xBF
+            or 0xF1 <= ch <= 0xF3
+            and i + 3 < n
+            and 0x80 <= path[i + 1] <= 0xBF
+            and 0x80 <= path[i + 2] <= 0xBF
+            and 0x80 <= path[i + 3] <= 0xBF
+            or ch == 0xF4
+            and i + 3 < n
+            and 0x80 <= path[i + 1] <= 0x8F
+            and 0x80 <= path[i + 2] <= 0xBF
+            and 0x80 <= path[i + 3] <= 0xBF
+        ):
+            # 4-byte sequence
+            append(path[i : i + 4])
+            i += 4
+            continue
         else:
-            return b"".join(changed_parts) + path
+            # Invalid byte/sequence: find next possibly-valid start
+            j = i + 1
+            while j < n and path[j] & 0xC0 == 0x80:
+                j += 1
+            append(quote(path[i:j], safe=safe).encode())
+            i = j
+
+    return b"".join(result)
 
 
 def filepath_to_uri(path):
