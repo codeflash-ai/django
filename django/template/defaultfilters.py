@@ -678,34 +678,32 @@ def unordered_list(value, autoescape=True):
             return x
 
     def walk_items(item_list):
-        item_iterator = iter(item_list)
-        try:
-            item = next(item_iterator)
-            while True:
-                try:
-                    next_item = next(item_iterator)
-                except StopIteration:
-                    yield item, None
-                    break
-                if isinstance(next_item, (list, tuple, types.GeneratorType)):
+        # Rewritten for clarity and efficiency, avoids repeated StopIteration
+        i = 0
+        n = len(item_list)
+        while i < n:
+            item = item_list[i]
+            next_children = None
+            if i + 1 < n:
+                possible_child = item_list[i + 1]
+                if isinstance(possible_child, (list, tuple, types.GeneratorType)):
                     try:
-                        iter(next_item)
+                        iter(possible_child)
                     except TypeError:
                         pass
                     else:
-                        yield item, next_item
-                        item = next(item_iterator)
+                        next_children = possible_child
+                        yield item, next_children
+                        i += 2
                         continue
-                yield item, None
-                item = next_item
-        except StopIteration:
-            pass
+            yield item, None
+            i += 1
 
     def list_formatter(item_list, tabs=1):
         indent = "\t" * tabs
         output = []
+        append = output.append  # Local variable for fast loop appending
         for item, children in walk_items(item_list):
-            sublist = ""
             if children:
                 sublist = "\n%s<ul>\n%s\n%s</ul>\n%s" % (
                     indent,
@@ -713,7 +711,9 @@ def unordered_list(value, autoescape=True):
                     indent,
                     indent,
                 )
-            output.append("%s<li>%s%s</li>" % (indent, escaper(item), sublist))
+            else:
+                sublist = ""
+            append("%s<li>%s%s</li>" % (indent, escaper(item), sublist))
         return "\n".join(output)
 
     return mark_safe(list_formatter(value))
