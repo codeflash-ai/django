@@ -47,6 +47,8 @@ class SessionBase:
         self.accessed = False
         self.modified = False
         self.serializer = import_string(settings.SESSION_SERIALIZER)
+        # Pre-init _session_cache for faster attribute resolution
+        self._session_cache = None
 
     def __contains__(self, key):
         return key in self._session
@@ -172,7 +174,12 @@ class SessionBase:
         return self._session.items()
 
     async def aitems(self):
-        return (await self._aget_session()).items()
+        # Avoid per-call attribute lookup and unnecessary await if session already loaded.
+        cache = self._session_cache
+        if cache is not None:
+            return cache.items()
+        cache = await self._aget_session()
+        return cache.items()
 
     def clear(self):
         # To avoid unnecessary persistent storage accesses, we set up the
@@ -251,14 +258,16 @@ class SessionBase:
 
     async def _aget_session(self, no_load=False):
         self.accessed = True
-        try:
-            return self._session_cache
-        except AttributeError:
-            if self.session_key is None or no_load:
-                self._session_cache = {}
-            else:
-                self._session_cache = await self.aload()
-        return self._session_cache
+        cache = self._session_cache
+        if cache is not None:
+            return cache
+        if self.session_key is None or no_load:
+            cache = {}
+        else:
+            # This likely calls a slow path—so we minimize await calls elsewhere.
+            cache = await self.aload()
+        self._session_cache = cache
+        return cache
 
     _session = property(_get_session)
 
