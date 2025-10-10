@@ -34,15 +34,15 @@ class YearMixin:
     def get_year(self):
         """Return the year for which this view should display data."""
         year = self.year
-        if year is None:
-            try:
-                year = self.kwargs["year"]
-            except KeyError:
-                try:
-                    year = self.request.GET["year"]
-                except KeyError:
-                    raise Http404(_("No year specified"))
-        return year
+        if year is not None:
+            return year
+        kwargs = self.kwargs
+        if "year" in kwargs:
+            return kwargs["year"]
+        request_get = self.request.GET
+        if "year" in request_get:
+            return request_get["year"]
+        raise Http404(_("No year specified"))
 
     def get_next_year(self, date):
         """Get the next valid year."""
