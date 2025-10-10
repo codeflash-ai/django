@@ -16,6 +16,7 @@ def blankout(src, char):
     Change every non-whitespace character to the given char.
     Used in the templatize function.
     """
+    # dot_re is already a compiled pattern.
     return dot_re.sub(char, src)
 
 
@@ -53,8 +54,17 @@ def templatize(src, origin=None):
     comment = []
     lineno_comment_map = {}
     comment_lineno_cache = None
-    # Adding the u prefix allows gettext to recognize the string (#26093).
     raw_prefix = "u"
+
+    # Hoist regex and helper function lookups for performance in tight loops
+    _endblock_re_match = endblock_re.match
+    _plural_re_match = plural_re.match
+    _inline_re_match = inline_re.match
+    _block_re_match = block_re.match
+    _constant_re_findall = constant_re.findall
+    _context_re_match = context_re.match
+
+    out_write = out.write
 
     def join_tokens(tokens, trim=False):
         message = "".join(tokens)
@@ -62,34 +72,38 @@ def templatize(src, origin=None):
             message = trim_whitespace(message)
         return message
 
-    for t in Lexer(src).tokenize():
+    LexerCls = Lexer
+
+    for t in LexerCls(src).tokenize():
         if incomment:
             if t.token_type == TokenType.BLOCK and t.contents == "endcomment":
+                # Only split once, reuse lines during processing
                 content = "".join(comment)
+                content_lines = tuple(content.splitlines(True))
                 translators_comment_start = None
-                for lineno, line in enumerate(content.splitlines(True)):
+                for lineno, line in enumerate(content_lines):
                     if line.lstrip().startswith(TRANSLATOR_COMMENT_MARK):
                         translators_comment_start = lineno
-                for lineno, line in enumerate(content.splitlines(True)):
+                for lineno, line in enumerate(content_lines):
                     if (
                         translators_comment_start is not None
                         and lineno >= translators_comment_start
                     ):
-                        out.write(" # %s" % line)
+                        out_write(" # %s" % line)
                     else:
-                        out.write(" #\n")
+                        out_write(" #\n")
                 incomment = False
                 comment = []
             else:
                 comment.append(t.contents)
         elif intrans:
             if t.token_type == TokenType.BLOCK:
-                endbmatch = endblock_re.match(t.contents)
-                pluralmatch = plural_re.match(t.contents)
+                endbmatch = _endblock_re_match(t.contents)
+                pluralmatch = _plural_re_match(t.contents)
                 if endbmatch:
                     if inplural:
                         if message_context:
-                            out.write(
+                            out_write(
                                 " npgettext({p}{!r}, {p}{!r}, {p}{!r},count) ".format(
                                     message_context,
                                     join_tokens(singular, trimmed),
@@ -98,7 +112,7 @@ def templatize(src, origin=None):
                                 )
                             )
                         else:
-                            out.write(
+                            out_write(
                                 " ngettext({p}{!r}, {p}{!r}, count) ".format(
                                     join_tokens(singular, trimmed),
                                     join_tokens(plural, trimmed),
@@ -106,12 +120,12 @@ def templatize(src, origin=None):
                                 )
                             )
                         for part in singular:
-                            out.write(blankout(part, "S"))
+                            out_write(blankout(part, "S"))
                         for part in plural:
-                            out.write(blankout(part, "P"))
+                            out_write(blankout(part, "P"))
                     else:
                         if message_context:
-                            out.write(
+                            out_write(
                                 " pgettext({p}{!r}, {p}{!r}) ".format(
                                     message_context,
                                     join_tokens(singular, trimmed),
@@ -119,14 +133,14 @@ def templatize(src, origin=None):
                                 )
                             )
                         else:
-                            out.write(
+                            out_write(
                                 " gettext({p}{!r}) ".format(
                                     join_tokens(singular, trimmed),
                                     p=raw_prefix,
                                 )
                             )
                         for part in singular:
-                            out.write(blankout(part, "S"))
+                            out_write(blankout(part, "S"))
                     message_context = None
                     intrans = False
                     inplural = False
@@ -148,6 +162,7 @@ def templatize(src, origin=None):
                 else:
                     singular.append("%%(%s)s" % t.contents)
             elif t.token_type == TokenType.TEXT:
+                # Only replace % once here, minimizing str creation
                 contents = t.contents.replace("%", "%%")
                 if inplural:
                     plural.append(contents)
@@ -172,15 +187,15 @@ def templatize(src, origin=None):
                             warnings.warn(warn_msg, TranslatorCommentWarning)
                         lineno_comment_map[comment_lineno_cache] = []
                 else:
-                    out.write(
+                    out_write(
                         "# %s" % " | ".join(lineno_comment_map[comment_lineno_cache])
                     )
                 comment_lineno_cache = None
 
             if t.token_type == TokenType.BLOCK:
-                imatch = inline_re.match(t.contents)
-                bmatch = block_re.match(t.contents)
-                cmatches = constant_re.findall(t.contents)
+                imatch = _inline_re_match(t.contents)
+                bmatch = _block_re_match(t.contents)
+                cmatches = _constant_re_findall(t.contents)
                 if imatch:
                     g = imatch[1]
                     if g[0] == '"':
@@ -190,26 +205,27 @@ def templatize(src, origin=None):
                     g = g.replace("%", "%%")
                     if imatch[2]:
                         # A context is provided
-                        context_match = context_re.match(imatch[2])
+                        context_match = _context_re_match(imatch[2])
                         message_context = context_match[1]
                         if message_context[0] == '"':
                             message_context = message_context.strip('"')
                         elif message_context[0] == "'":
                             message_context = message_context.strip("'")
-                        out.write(
+                        out_write(
                             " pgettext({p}{!r}, {p}{!r}) ".format(
                                 message_context, g, p=raw_prefix
                             )
                         )
                         message_context = None
                     else:
-                        out.write(" gettext({p}{!r}) ".format(g, p=raw_prefix))
+                        out_write(" gettext({p}{!r}) ".format(g, p=raw_prefix))
                 elif bmatch:
-                    for fmatch in constant_re.findall(t.contents):
-                        out.write(" _(%s) " % fmatch)
+                    fconsts = _constant_re_findall(t.contents)
+                    for fmatch in fconsts:
+                        out_write(" _(%s) " % fmatch)
                     if bmatch[1]:
                         # A context is provided
-                        context_match = context_re.match(bmatch[1])
+                        context_match = _context_re_match(bmatch[1])
                         message_context = context_match[1]
                         if message_context[0] == '"':
                             message_context = message_context.strip('"')
@@ -217,30 +233,33 @@ def templatize(src, origin=None):
                             message_context = message_context.strip("'")
                     intrans = True
                     inplural = False
-                    trimmed = "trimmed" in t.split_contents()
+                    # This split_contents call is expensive, ensure only 1 call per block
+                    # and minimize "in" against set
+                    t_split = t.split_contents()
+                    trimmed = "trimmed" in t_split if t_split else False
                     singular = []
                     plural = []
                 elif cmatches:
                     for cmatch in cmatches:
-                        out.write(" _(%s) " % cmatch)
+                        out_write(" _(%s) " % cmatch)
                 elif t.contents == "comment":
                     incomment = True
                 else:
-                    out.write(blankout(t.contents, "B"))
+                    out_write(blankout(t.contents, "B"))
             elif t.token_type == TokenType.VAR:
                 parts = t.contents.split("|")
                 cmatch = constant_re.match(parts[0])
                 if cmatch:
-                    out.write(" _(%s) " % cmatch[1])
+                    out_write(" _(%s) " % cmatch[1])
                 for p in parts[1:]:
                     if p.find(":_(") >= 0:
-                        out.write(" %s " % p.split(":", 1)[1])
+                        out_write(" %s " % p.split(":", 1)[1])
                     else:
-                        out.write(blankout(p, "F"))
+                        out_write(blankout(p, "F"))
             elif t.token_type == TokenType.COMMENT:
                 if t.contents.lstrip().startswith(TRANSLATOR_COMMENT_MARK):
                     lineno_comment_map.setdefault(t.lineno, []).append(t.contents)
                     comment_lineno_cache = t.lineno
             else:
-                out.write(blankout(t.contents, "X"))
+                out_write(blankout(t.contents, "X"))
     return out.getvalue()
