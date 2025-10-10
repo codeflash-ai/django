@@ -209,7 +209,7 @@ class Page(collections.abc.Sequence):
         return self.number > 1
 
     def has_other_pages(self):
-        return self.has_previous() or self.has_next()
+        return self.number > 1 or self.number < self.paginator.num_pages
 
     def next_page_number(self):
         return self.paginator.validate_number(self.number + 1)
