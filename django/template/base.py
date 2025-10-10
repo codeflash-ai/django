@@ -60,7 +60,8 @@ from django.utils.formats import localize
 from django.utils.html import conditional_escape, escape
 from django.utils.regex_helper import _lazy_re_compile
 from django.utils.safestring import SafeData, SafeString, mark_safe
-from django.utils.text import get_text_list, smart_split, unescape_string_literal
+from django.utils.text import (get_text_list, smart_split,
+                               unescape_string_literal)
 from django.utils.timezone import template_localtime
 from django.utils.translation import gettext_lazy, pgettext_lazy
 
@@ -322,18 +323,28 @@ class Token:
         )
 
     def split_contents(self):
+        # Calling smart_split as a generator, only walk as needed,
+        # minimizing allocations and unnecessary string joining.
         split = []
-        bits = smart_split(self.contents)
-        for bit in bits:
-            # Handle translation-marked template pieces
-            if bit.startswith(('_("', "_('")):
-                sentinel = bit[2] + ")"
-                trans_bit = [bit]
-                while not bit.endswith(sentinel):
-                    bit = next(bits)
-                    trans_bit.append(bit)
-                bit = " ".join(trans_bit)
-            split.append(bit)
+        bits = iter(smart_split(self.contents))
+        append = split.append
+        start_check = ('_("', "_('")
+        try:
+            for bit in bits:
+                # Handle translation-marked template pieces
+                if bit.startswith(start_check):
+                    sentinel = bit[2] + ")"
+                    trans_bit = [bit]
+                    while not bit.endswith(sentinel):
+                        bit = next(bits)
+                        trans_bit.append(bit)
+                    # This is behaviorally the same, as 'bit' in this case always ends with sentinel
+                    bit = " ".join(trans_bit)
+                    append(bit)
+                else:
+                    append(bit)
+        except StopIteration:
+            pass
         return split
 
 
@@ -353,12 +364,19 @@ class Lexer:
         """
         Return a list of tokens from a given template_string.
         """
+        # Hoist local references for mechanisms that will be repeated in the loop
+        tag_split = tag_re.split
+        create_token = self.create_token
+        template_string = self.template_string
+        result = []
         in_tag = False
         lineno = 1
-        result = []
-        for token_string in tag_re.split(self.template_string):
+        append = result.append
+
+        # Avoid split trailing-empty if template ends with tag
+        for token_string in tag_split(template_string):
             if token_string:
-                result.append(self.create_token(token_string, None, lineno, in_tag))
+                append(create_token(token_string, None, lineno, in_tag))
                 lineno += token_string.count("\n")
             in_tag = not in_tag
         return result
