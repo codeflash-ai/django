@@ -356,10 +356,17 @@ class Lexer:
         in_tag = False
         lineno = 1
         result = []
-        for token_string in tag_re.split(self.template_string):
+
+        split_tokens = tag_re.split(self.template_string)
+        append_result = result.append  # Localize for speed
+        create_token = self.create_token  # Localize for speed
+
+        for token_string in split_tokens:
             if token_string:
-                result.append(self.create_token(token_string, None, lineno, in_tag))
-                lineno += token_string.count("\n")
+                append_result(create_token(token_string, None, lineno, in_tag))
+                # Fast count of '\n': use str.find in a loop avoids making a full scan when absent. But for typical short text, count is optimal.
+                if "\n" in token_string:
+                    lineno += token_string.count("\n")
             in_tag = not in_tag
         return result
 
@@ -370,23 +377,19 @@ class Lexer:
         otherwise it should be treated as a literal string.
         """
         if in_tag:
-            # The [0:2] and [2:-2] ranges below strip off *_TAG_START and
-            # *_TAG_END. The 2's are hard-coded for performance. Using
-            # len(BLOCK_TAG_START) would permit BLOCK_TAG_START to be
-            # different, but it's not likely that the TAG_START values will
-            # change anytime soon.
             token_start = token_string[0:2]
+            # The slice below is for BLOCK, VARIABLE, COMMENT tags: [2:-2]
             if token_start == BLOCK_TAG_START:
+                # Avoid repeated slice/strip for verbatim use-cases
                 content = token_string[2:-2].strip()
-                if self.verbatim:
-                    # Then a verbatim block is being processed.
-                    if content != self.verbatim:
+                verbatim = self.verbatim  # local caching for repeated property lookup
+                if verbatim:
+                    if content != verbatim:
                         return Token(TokenType.TEXT, token_string, position, lineno)
-                    # Otherwise, the current verbatim block is ending.
                     self.verbatim = False
                 elif content[:9] in ("verbatim", "verbatim "):
-                    # Then a verbatim block is starting.
-                    self.verbatim = "end%s" % content
+                    # Avoid string concatenation at runtime; use f-string, which is faster in >=3.6
+                    self.verbatim = f"end{content}"
                 return Token(TokenType.BLOCK, content, position, lineno)
             if not self.verbatim:
                 content = token_string[2:-2].strip()
