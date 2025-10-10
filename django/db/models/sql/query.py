@@ -925,29 +925,31 @@ class Query(BaseExpression):
         of a->b doesn't actually change anything in the query results.
         """
         aliases = list(aliases)
+        alias_map = self.alias_map
+        # Optimization: avoid repeated lookups in self.alias_map
+        pop = aliases.pop
+        extend = aliases.extend
         while aliases:
-            alias = aliases.pop(0)
-            if self.alias_map[alias].join_type is None:
+            alias = pop(0)
+            join_obj = alias_map[alias]
+            if join_obj.join_type is None:
                 # This is the base table (first FROM entry) - this table
                 # isn't really joined at all in the query, so we should not
                 # alter its join type.
                 continue
             # Only the first alias (skipped above) should have None join_type
-            assert self.alias_map[alias].join_type is not None
-            parent_alias = self.alias_map[alias].parent_alias
-            parent_louter = (
-                parent_alias and self.alias_map[parent_alias].join_type == LOUTER
-            )
-            already_louter = self.alias_map[alias].join_type == LOUTER
-            if (self.alias_map[alias].nullable or parent_louter) and not already_louter:
-                self.alias_map[alias] = self.alias_map[alias].promote()
+            assert join_obj.join_type is not None
+            parent_alias = join_obj.parent_alias
+            parent_louter = parent_alias and alias_map[parent_alias].join_type == LOUTER
+            already_louter = join_obj.join_type == LOUTER
+            if (join_obj.nullable or parent_louter) and not already_louter:
+                alias_map[alias] = join_obj.promote()
                 # Join type of 'alias' changed, so re-examine all aliases that
                 # refer to this one.
-                aliases.extend(
+                extend(
                     join
-                    for join in self.alias_map
-                    if self.alias_map[join].parent_alias == alias
-                    and join not in aliases
+                    for join, child in alias_map.items()
+                    if child.parent_alias == alias and join not in aliases
                 )
 
     def demote_joins(self, aliases):
@@ -961,13 +963,17 @@ class Query(BaseExpression):
         actually change anything in the query results. .
         """
         aliases = list(aliases)
+        alias_map = self.alias_map
+        pop = aliases.pop
+        append = aliases.append
         while aliases:
-            alias = aliases.pop(0)
-            if self.alias_map[alias].join_type == LOUTER:
-                self.alias_map[alias] = self.alias_map[alias].demote()
-                parent_alias = self.alias_map[alias].parent_alias
-                if self.alias_map[parent_alias].join_type == INNER:
-                    aliases.append(parent_alias)
+            alias = pop(0)
+            join_obj = alias_map[alias]
+            if join_obj.join_type == LOUTER:
+                alias_map[alias] = join_obj.demote()
+                parent_alias = join_obj.parent_alias
+                if alias_map[parent_alias].join_type == INNER:
+                    append(parent_alias)
 
     def reset_refcounts(self, to_counts):
         """
@@ -2690,52 +2696,28 @@ class JoinPromoter:
         to INNER, but don't make OUTER joins INNER if that could remove
         results from the query.
         """
+        votes_items = self.votes.items()
+        effective_connector = self.effective_connector
+        num_children = self.num_children
+
+        # Tighten loop: reduce attribute lookups and use local vars
         to_promote = set()
         to_demote = set()
-        # The effective_connector is used so that NOT (a AND b) is treated
-        # similarly to (a OR b) for join promotion.
-        for table, votes in self.votes.items():
-            # We must use outer joins in OR case when the join isn't contained
-            # in all of the joins. Otherwise the INNER JOIN itself could remove
-            # valid results. Consider the case where a model with rel_a and
-            # rel_b relations is queried with rel_a__col=1 | rel_b__col=2. Now,
-            # if rel_a join doesn't produce any results is null (for example
-            # reverse foreign key or null value in direct foreign key), and
-            # there is a matching row in rel_b with col=2, then an INNER join
-            # to rel_a would remove a valid match from the query. So, we need
-            # to promote any existing INNER to LOUTER (it is possible this
-            # promotion in turn will be demoted later on).
-            if self.effective_connector == OR and votes < self.num_children:
-                to_promote.add(table)
-            # If connector is AND and there is a filter that can match only
-            # when there is a joinable row, then use INNER. For example, in
-            # rel_a__col=1 & rel_b__col=2, if either of the rels produce NULL
-            # as join output, then the col=1 or col=2 can't match (as
-            # NULL=anything is always false).
-            # For the OR case, if all children voted for a join to be inner,
-            # then we can use INNER for the join. For example:
-            #     (rel_a__col__icontains=Alex | rel_a__col__icontains=Russell)
-            # then if rel_a doesn't produce any rows, the whole condition
-            # can't match. Hence we can safely use INNER join.
-            if self.effective_connector == AND or (
-                self.effective_connector == OR and votes == self.num_children
-            ):
+
+        if effective_connector == OR:
+            # Split for-loop logic for OR for a single pass
+            for table, votes in votes_items:
+                if votes < num_children:
+                    to_promote.add(table)
+                elif votes == num_children:
+                    to_demote.add(table)
+        else:  # Only possible other value is AND (from code logic above)
+            for table, votes in votes_items:
                 to_demote.add(table)
-            # Finally, what happens in cases where we have:
-            #    (rel_a__col=1|rel_b__col=2) & rel_a__col__gte=0
-            # Now, we first generate the OR clause, and promote joins for it
-            # in the first if branch above. Both rel_a and rel_b are promoted
-            # to LOUTER joins. After that we do the AND case. The OR case
-            # voted no inner joins but the rel_a__col__gte=0 votes inner join
-            # for rel_a. We demote it back to INNER join (in AND case a single
-            # vote is enough). The demotion is OK, if rel_a doesn't produce
-            # rows, then the rel_a__col__gte=0 clause can't be true, and thus
-            # the whole clause must be false. So, it is safe to use INNER
-            # join.
-            # Note that in this example we could just as well have the __gte
-            # clause and the OR clause swapped. Or we could replace the __gte
-            # clause with an OR clause containing rel_a__col=1|rel_a__col=2,
-            # and again we could safely demote to INNER.
-        query.promote_joins(to_promote)
-        query.demote_joins(to_demote)
+
+        # Avoid calling promote_joins/demote_joins unless necessary
+        if to_promote:
+            query.promote_joins(to_promote)
+        if to_demote:
+            query.demote_joins(to_demote)
         return to_demote
