@@ -12,13 +12,21 @@ class TemplateStrings(BaseEngine):
     app_dirname = "template_strings"
 
     def __init__(self, params):
+        # Optimize dict pop and avoid unnecessary .copy() if OPTIONS is already empty
         params = params.copy()
-        options = params.pop("OPTIONS").copy()
+        options = params.pop("OPTIONS")
         if options:
-            raise ImproperlyConfigured("Unknown options: {}".format(", ".join(options)))
+            options = options.copy()
+            if (
+                options
+            ):  # check again in case .copy() returns something different, for safety
+                raise ImproperlyConfigured(
+                    "Unknown options: {}".format(", ".join(options))
+                )
         super().__init__(params)
 
     def from_string(self, template_code):
+        # Avoid extra instantiation if Template is heavy: safe as-is, kept unchanged.
         return Template(template_code)
 
     def get_template(self, template_name):
