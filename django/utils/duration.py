@@ -34,12 +34,13 @@ def duration_iso_string(duration):
         duration *= -1
     else:
         sign = ""
-
     days, hours, minutes, seconds, microseconds = _get_duration_components(duration)
-    ms = ".{:06d}".format(microseconds) if microseconds else ""
-    return "{}P{}DT{:02d}H{:02d}M{:02d}{}S".format(
-        sign, days, hours, minutes, seconds, ms
-    )
+    if microseconds:
+        ms = f".{microseconds:06d}"
+    else:
+        ms = ""
+    # f-string avoids intermediate string objects and is faster than str.format
+    return f"{sign}P{days}DT{hours:02d}H{minutes:02d}M{seconds:02d}{ms}S"
 
 
 def duration_microseconds(delta):
