@@ -299,11 +299,11 @@ class NaturalTimeFormatter:
                 return cls.time_strings["now"]
             elif delta.seconds < 60:
                 return cls.time_strings["past-second"] % {"count": delta.seconds}
-            elif delta.seconds // 60 < 60:
+            elif delta.seconds < 3600:
                 count = delta.seconds // 60
                 return cls.time_strings["past-minute"] % {"count": count}
             else:
-                count = delta.seconds // 60 // 60
+                count = delta.seconds // 3600
                 return cls.time_strings["past-hour"] % {"count": count}
         else:
             delta = value - now
@@ -317,9 +317,9 @@ class NaturalTimeFormatter:
                 return cls.time_strings["now"]
             elif delta.seconds < 60:
                 return cls.time_strings["future-second"] % {"count": delta.seconds}
-            elif delta.seconds // 60 < 60:
+            elif delta.seconds < 3600:
                 count = delta.seconds // 60
                 return cls.time_strings["future-minute"] % {"count": count}
             else:
-                count = delta.seconds // 60 // 60
+                count = delta.seconds // 3600
                 return cls.time_strings["future-hour"] % {"count": count}
