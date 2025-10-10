@@ -163,7 +163,9 @@ class Field:
 
         messages = {}
         for c in reversed(self.__class__.__mro__):
-            messages.update(getattr(c, "default_error_messages", {}))
+            default_messages = getattr(c, "default_error_messages", None)
+            if default_messages:
+                messages.update(default_messages)
         messages.update(error_messages or {})
         self.error_messages = messages
 
