@@ -318,26 +318,26 @@ class BaseHandler:
         """
         Raise an error if the view returned None or an uncalled coroutine.
         """
-        if not (response is None or asyncio.iscoroutine(response)):
+        if response is not None and not asyncio.iscoroutine(response):
             return
+
+        # Defer name construction until needed, avoids unnecessary isinstance/is attribute lookups on hot path
         if not name:
+            module = getattr(callback, "__module__", None)
             if isinstance(callback, types.FunctionType):  # FBV
-                name = "The view %s.%s" % (callback.__module__, callback.__name__)
+                func_name = getattr(callback, "__name__", None)
+                name = f"The view {module}.{func_name}"
             else:  # CBV
-                name = "The view %s.%s.__call__" % (
-                    callback.__module__,
-                    callback.__class__.__name__,
-                )
+                class_name = callback.__class__.__name__
+                name = f"The view {module}.{class_name}.__call__"
         if response is None:
             raise ValueError(
-                "%s didn't return an HttpResponse object. It returned None "
-                "instead." % name
+                f"{name} didn't return an HttpResponse object. It returned None instead."
             )
-        elif asyncio.iscoroutine(response):
+        else:
+            # Only possible here: asyncio.iscoroutine(response) is True
             raise ValueError(
-                "%s didn't return an HttpResponse object. It returned an "
-                "unawaited coroutine instead. You may need to add an 'await' "
-                "into your view." % name
+                f"{name} didn't return an HttpResponse object. It returned an unawaited coroutine instead. You may need to add an 'await' into your view."
             )
 
     # Other utility methods.
