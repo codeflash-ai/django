@@ -723,34 +723,35 @@ class ImageField(FileField):
 
         from PIL import Image
 
-        # We need to get a file object for Pillow. We might have a path or we might
-        # have to read the data into memory.
+        # Prefer using the underlying file stream if available.
         if hasattr(data, "temporary_file_path"):
             file = data.temporary_file_path()
-        else:
-            if hasattr(data, "read"):
+        elif hasattr(data, "file"):
+            file = data.file
+        elif hasattr(data, "read"):
+            # Avoid repeated memory allocations by resetting pointer if possible
+            fileobj = data
+            try:
+                fileobj.seek(0)
+                file = fileobj
+            except Exception:
                 file = BytesIO(data.read())
-            else:
-                file = BytesIO(data["content"])
+        else:
+            file = BytesIO(data["content"])
 
         try:
-            # load() could spot a truncated JPEG, but it loads the entire
-            # image in memory, which is a DoS vector. See #3848 and #18520.
+            # Open image efficiently, verify content.
             image = Image.open(file)
-            # verify() must be called immediately after the constructor.
             image.verify()
-
-            # Annotating so subclasses can reuse it for their own validation
             f.image = image
-            # Pillow doesn't detect the MIME type of all formats. In those
-            # cases, content_type will be None.
             f.content_type = Image.MIME.get(image.format)
         except Exception as exc:
-            # Pillow doesn't recognize it as an image.
             raise ValidationError(
                 self.error_messages["invalid_image"],
                 code="invalid_image",
             ) from exc
+
+        # Rewind for further possible reading
         if hasattr(f, "seek") and callable(f.seek):
             f.seek(0)
         return f
