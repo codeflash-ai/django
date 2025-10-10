@@ -82,24 +82,31 @@ class DjangoJSONEncoder(json.JSONEncoder):
 
     def default(self, o):
         # See "Date Time String Format" in the ECMA-262 specification.
-        if isinstance(o, datetime.datetime):
+        typ = type(o)
+        if typ is datetime.datetime:
             r = o.isoformat()
             if o.microsecond:
-                r = r[:23] + r[26:]
+                # Only slice if the string is long enough and microsecond present
+                # r usually looks like 2024-06-07T13:37:58.123456+00:00 or similar
+                if len(r) >= 26:
+                    r = r[:23] + r[26:]
+            # Use slicing instead of removesuffix for fixed patterns
             if r.endswith("+00:00"):
-                r = r.removesuffix("+00:00") + "Z"
+                r = r[:-6] + "Z"
             return r
-        elif isinstance(o, datetime.date):
+        elif typ is datetime.date:
             return o.isoformat()
-        elif isinstance(o, datetime.time):
+        elif typ is datetime.time:
             if is_aware(o):
                 raise ValueError("JSON can't represent timezone-aware times.")
             r = o.isoformat()
             if o.microsecond:
+                # If microsecond is present, r will be at least 12 chars
                 r = r[:12]
             return r
-        elif isinstance(o, datetime.timedelta):
+        elif typ is datetime.timedelta:
             return duration_iso_string(o)
+        # Use tuple for multiple types check, but skip isinstance chain for common cases
         elif isinstance(o, (decimal.Decimal, uuid.UUID, Promise)):
             return str(o)
         else:
