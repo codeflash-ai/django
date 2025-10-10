@@ -408,10 +408,11 @@ class KeyTextTransform(KeyTransform):
 
     @classmethod
     def from_lookup(cls, lookup):
-        transform, *keys = lookup.split(LOOKUP_SEP)
-        if not keys:
+        keys = lookup.split(LOOKUP_SEP)
+        if not keys[1:]:
             raise ValueError("Lookup must contain key or index transforms.")
-        for key in keys:
+        transform = keys[0]
+        for key in keys[1:]:
             transform = cls(key, transform)
         return transform
 
