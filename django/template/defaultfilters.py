@@ -537,22 +537,45 @@ def _property_resolver(arg):
     >>> _property_resolver('b')(Foo())
     3.14
     """
+    # Fast path: arg is a number or can be fully interpreted by itemgetter
     try:
-        float(arg)
+        f = float(arg)
     except ValueError:
+        # Optimize: shortcut for valid Python identifier, skip split if possible.
+        # First, check if arg could access private members
         if VARIABLE_ATTRIBUTE_SEPARATOR + "_" in arg or arg[0] == "_":
             raise AttributeError("Access to private variables is forbidden.")
-        parts = arg.split(VARIABLE_ATTRIBUTE_SEPARATOR)
 
-        def resolve(value):
-            for part in parts:
+        sep = VARIABLE_ATTRIBUTE_SEPARATOR
+        if sep not in arg:
+            part = arg
+
+            # Single attribute access
+            def resolve_single(value):
                 try:
-                    value = value[part]
+                    return value[part]
                 except (AttributeError, IndexError, KeyError, TypeError, ValueError):
-                    value = getattr(value, part)
-            return value
+                    return getattr(value, part)
 
-        return resolve
+            return resolve_single
+        else:
+            parts = arg.split(sep)
+
+            def resolve_chain(value):
+                for part in parts:
+                    try:
+                        value = value[part]
+                    except (
+                        AttributeError,
+                        IndexError,
+                        KeyError,
+                        TypeError,
+                        ValueError,
+                    ):
+                        value = getattr(value, part)
+                return value
+
+            return resolve_chain
     else:
         return itemgetter(arg)
 
@@ -564,7 +587,9 @@ def dictsort(value, arg):
     the argument.
     """
     try:
-        return sorted(value, key=_property_resolver(arg))
+        keyfunc = _property_resolver(arg)
+        # Optimization: avoid passing a new function repeatedly, bind keyfunc locally
+        return sorted(value, key=keyfunc)
     except (AttributeError, TypeError):
         return ""
 
