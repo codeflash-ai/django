@@ -159,7 +159,9 @@ class RawQuery:
         return self.clone(using)
 
     def clone(self, using):
-        return RawQuery(self.sql, using, params=self.params)
+        # Avoid unnecessary keyword argument binding if not needed.
+        # Since self.params is already a tuple (immutable), it's safe to share it.
+        return RawQuery(self.sql, using, self.params)
 
     def get_columns(self):
         if self.cursor is None:
