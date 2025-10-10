@@ -41,16 +41,32 @@ def symlinks_supported():
     and/or if they are allowed to be created (e.g. on Windows it requires admin
     permissions).
     """
-    with tempfile.TemporaryDirectory() as temp_dir:
-        original_path = os.path.join(temp_dir, "original")
-        symlink_path = os.path.join(temp_dir, "symlink")
-        os.makedirs(original_path)
+    temp_dir = tempfile.gettempdir()
+    original_path = os.path.join(temp_dir, "original")
+    symlink_path = os.path.join(temp_dir, "symlink")
+
+    try:
+        if not os.path.isdir(original_path):
+            os.mkdir(original_path)
         try:
             os.symlink(original_path, symlink_path)
             supported = True
         except (OSError, NotImplementedError):
             supported = False
-        return supported
+        finally:
+            if os.path.islink(symlink_path):
+                try:
+                    os.unlink(symlink_path)
+                except OSError:
+                    pass
+    finally:
+        if os.path.isdir(original_path):
+            try:
+                os.rmdir(original_path)
+            except OSError:
+                pass
+
+    return supported
 
 
 def to_path(value):
