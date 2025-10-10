@@ -1850,19 +1850,24 @@ class MigrationAutodetector:
         still be present as they may be required dependencies.
         """
         # Gather other app dependencies in a first pass
-        app_dependencies = {}
+        app_dependencies = {app_label: set() for app_label in changes}
         for app_label, migrations in changes.items():
             for migration in migrations:
                 for dep_app_label, name in migration.dependencies:
-                    app_dependencies.setdefault(app_label, set()).add(dep_app_label)
+                    app_dependencies[app_label].add(dep_app_label)
         required_apps = set(app_labels)
         # Keep resolving till there's no change
-        old_required_apps = None
-        while old_required_apps != required_apps:
-            old_required_apps = set(required_apps)
-            required_apps.update(
-                *[app_dependencies.get(app_label, ()) for app_label in required_apps]
-            )
+        processed_apps = set()
+        queue = list(required_apps)
+        while queue:
+            app_label = queue.pop()
+            if app_label in processed_apps:
+                continue
+            processed_apps.add(app_label)
+            for dep_app_label in app_dependencies.get(app_label, ()):
+                if dep_app_label not in required_apps:
+                    required_apps.add(dep_app_label)
+                    queue.append(dep_app_label)
         # Remove all migrations that aren't needed
         for app_label in list(changes):
             if app_label not in required_apps:
