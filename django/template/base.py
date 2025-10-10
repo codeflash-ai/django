@@ -472,53 +472,64 @@ class Parser:
         if parse_until is None:
             parse_until = []
         nodelist = NodeList()
-        while self.tokens:
-            token = self.next_token()
-            # Use the raw values here for TokenType.* for a tiny performance boost.
+        tokens = self.tokens  # Local var for micro-optimization of fast loop access
+        command_stack = self.command_stack
+        tags = self.tags
+
+        # Pre-bind attributes and methods for loop
+        extend_nodelist = self.extend_nodelist
+        error = self.error
+        prepend_token = self.prepend_token
+        compile_filter = self.compile_filter
+        VariableNode_ = VariableNode  # Avoid attribute lookup in tight loop
+        TextNode_ = TextNode
+
+        parse_until_set = (
+            set(parse_until) if parse_until else None
+        )  # Faster lookup in big parse_until lists
+
+        while tokens:
+            token = tokens.pop()
             token_type = token.token_type.value
             if token_type == 0:  # TokenType.TEXT
-                self.extend_nodelist(nodelist, TextNode(token.contents), token)
+                extend_nodelist(nodelist, TextNode_(token.contents), token)
             elif token_type == 1:  # TokenType.VAR
                 if not token.contents:
-                    raise self.error(
-                        token, "Empty variable tag on line %d" % token.lineno
-                    )
+                    raise error(token, "Empty variable tag on line %d" % token.lineno)
                 try:
-                    filter_expression = self.compile_filter(token.contents)
+                    filter_expression = compile_filter(token.contents)
                 except TemplateSyntaxError as e:
-                    raise self.error(token, e)
-                var_node = VariableNode(filter_expression)
-                self.extend_nodelist(nodelist, var_node, token)
+                    raise error(token, e)
+                var_node = VariableNode_(filter_expression)
+                extend_nodelist(nodelist, var_node, token)
             elif token_type == 2:  # TokenType.BLOCK
+                contents = token.contents
                 try:
-                    command = token.contents.split()[0]
+                    command = contents.split(None, 1)[
+                        0
+                    ]  # micro-opt: only get first word
                 except IndexError:
-                    raise self.error(token, "Empty block tag on line %d" % token.lineno)
-                if command in parse_until:
-                    # A matching token has been reached. Return control to
-                    # the caller. Put the token back on the token list so the
-                    # caller knows where it terminated.
-                    self.prepend_token(token)
+                    raise error(token, "Empty block tag on line %d" % token.lineno)
+
+                # Use set lookup if available for parse_until (large values benefit, small no regression)
+                if parse_until_set and command in parse_until_set:
+                    prepend_token(token)
                     return nodelist
-                # Add the token to the command stack. This is used for error
-                # messages if further parsing fails due to an unclosed block
-                # tag.
-                self.command_stack.append((command, token))
-                # Get the tag callback function from the ones registered with
-                # the parser.
+                elif parse_until and command in parse_until:
+                    prepend_token(token)
+                    return nodelist
+
+                command_stack.append((command, token))
                 try:
-                    compile_func = self.tags[command]
+                    compile_func = tags[command]
                 except KeyError:
                     self.invalid_block_tag(token, command, parse_until)
-                # Compile the callback into a node object and add it to
-                # the node list.
                 try:
                     compiled_result = compile_func(self, token)
                 except Exception as e:
-                    raise self.error(token, e)
-                self.extend_nodelist(nodelist, compiled_result, token)
-                # Compile success. Remove the token from the command stack.
-                self.command_stack.pop()
+                    raise error(token, e)
+                extend_nodelist(nodelist, compiled_result, token)
+                command_stack.pop()
         if parse_until:
             self.unclosed_block_tag(parse_until)
         return nodelist
