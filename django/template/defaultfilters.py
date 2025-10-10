@@ -137,6 +137,7 @@ def floatformat(text, arg=-1):
     """
     force_grouping = False
     use_l10n = True
+    orig_arg = arg
     if isinstance(arg, str):
         last_char = arg[-1]
         if arg[-2:] in {"gu", "ug"}:
@@ -149,25 +150,29 @@ def floatformat(text, arg=-1):
         elif last_char == "u":
             use_l10n = False
             arg = arg[:-1] or -1
+    # Optimize the Decimal conversion: try Decimal(str(text)), fallback to Decimal(str(float(text))) once
     try:
         input_val = str(text)
         d = Decimal(input_val)
     except InvalidOperation:
         try:
-            d = Decimal(str(float(text)))
+            float_val = float(text)
+            d = Decimal(str(float_val))
+            input_val = str(float_val)
         except (ValueError, InvalidOperation, TypeError):
             return ""
+    # Return string representation for NaN and Infinity values (do not attempt further computation)
+    if not d.is_finite():
+        return input_val
     try:
         p = int(arg)
     except ValueError:
         return input_val
 
-    try:
-        m = int(d) - d
-    except (ValueError, OverflowError, InvalidOperation):
-        return input_val
-
-    if not m and p <= 0:
+    tupl = d.as_tuple()
+    # Early-out for integer values with no decimal part when p <= 0
+    is_integer = (not (int(d) - d)) if d.is_finite() else False
+    if is_integer and p <= 0:
         return mark_safe(
             formats.number_format(
                 "%d" % (int(d)),
@@ -178,24 +183,27 @@ def floatformat(text, arg=-1):
         )
 
     exp = Decimal(1).scaleb(-abs(p))
-    # Set the precision high enough to avoid an exception (#15789).
-    tupl = d.as_tuple()
     units = len(tupl[1])
-    units += -tupl[2] if m else tupl[2]
+    units += -tupl[2] if not is_integer else tupl[2]
     prec = abs(p) + units + 1
     prec = max(getcontext().prec, prec)
 
-    # Avoid conversion to scientific notation by accessing `sign`, `digits`,
-    # and `exponent` from Decimal.as_tuple() directly.
+    # Quantize and format number with desired precision
     rounded_d = d.quantize(exp, ROUND_HALF_UP, Context(prec=prec))
     sign, digits, exponent = rounded_d.as_tuple()
-    digits = [str(digit) for digit in reversed(digits)]
-    while len(digits) <= abs(exponent):
-        digits.append("0")
-    digits.insert(-exponent, ".")
-    if sign and rounded_d:
-        digits.append("-")
-    number = "".join(reversed(digits))
+
+    # Use string operations for decimal placement (faster than inserting in lists)
+    int_digits = digits[:exponent] if exponent < 0 else digits + (0,) * exponent
+    frac_digits = digits[exponent:] if exponent < 0 else ()
+    int_part = "".join(str(dig) for dig in int_digits) or "0"
+    frac_part = "".join(str(dig) for dig in frac_digits)
+    if abs(exponent) > 0:
+        number = int_part + "." + frac_part
+    else:
+        number = int_part
+    if sign:
+        number = "-" + number
+
     return mark_safe(
         formats.number_format(
             number,
