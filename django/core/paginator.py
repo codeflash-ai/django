@@ -233,6 +233,8 @@ class Page(collections.abc.Sequence):
         relative to total objects found (hits).
         """
         # Special case for the last page because there can be orphans.
-        if self.number == self.paginator.num_pages:
-            return self.paginator.count
-        return self.number * self.paginator.per_page
+        number = self.number
+        paginator = self.paginator
+        if number == paginator.num_pages:
+            return paginator.count
+        return number * paginator.per_page
