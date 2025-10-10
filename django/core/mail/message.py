@@ -106,15 +106,16 @@ def sanitize_address(addr, encoding):
         raise ValueError("Invalid address; address parts cannot contain newlines.")
 
     # Avoid UTF-8 encode, if it's possible.
-    try:
-        nm.encode("ascii")
-        nm = Header(nm).encode()
-    except UnicodeEncodeError:
+    if not nm:
+        nm = ""
+    elif nm.isascii():
+        pass  # nm is already ASCII, no encoding needed
+    else:
         nm = Header(nm, encoding).encode()
-    try:
-        localpart.encode("ascii")
-    except UnicodeEncodeError:
+
+    if not localpart.isascii():
         localpart = Header(localpart, encoding).encode()
+
     domain = punycode(domain)
 
     parsed_address = Address(username=localpart, domain=domain)
