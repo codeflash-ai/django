@@ -944,12 +944,18 @@ def pluralize(value, arg="s"):
     * If value is 1, cand{{ value|pluralize:"y,ies" }} display "candy".
     * If value is 2, cand{{ value|pluralize:"y,ies" }} display "candies".
     """
-    if "," not in arg:
-        arg = "," + arg
-    bits = arg.split(",")
-    if len(bits) > 2:
-        return ""
-    singular_suffix, plural_suffix = bits[:2]
+
+    # Fast-path for default case
+    if arg == "s":
+        singular_suffix = ""
+        plural_suffix = "s"
+    else:
+        if "," not in arg:
+            arg = "," + arg
+        bits = arg.split(",")
+        if len(bits) > 2:
+            return ""
+        singular_suffix, plural_suffix = bits[:2]
 
     try:
         return singular_suffix if float(value) == 1 else plural_suffix
