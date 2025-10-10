@@ -77,9 +77,20 @@ class SessionBase:
         return (await self._aget_session()).get(key, default)
 
     def pop(self, key, default=__not_given):
-        self.modified = self.modified or key in self._session
-        args = () if default is self.__not_given else (default,)
-        return self._session.pop(key, *args)
+        session = self._session  # Local variable lookup is faster than attribute access
+        try:
+            value = session.pop(key)
+            self.modified = True
+            return value
+        except KeyError:
+            if default is self.__not_given:
+                self.modified = (
+                    self.modified or False
+                )  # No mutation, preserve original logic
+                raise
+            else:
+                self.modified = self.modified or False  # No mutation on .pop miss
+                return default
 
     async def apop(self, key, default=__not_given):
         self.modified = self.modified or key in (await self._aget_session())
