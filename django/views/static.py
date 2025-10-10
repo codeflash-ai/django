@@ -22,7 +22,9 @@ def builtin_template_path(name):
     Avoid calling this function at the module level or in a class-definition
     because __file__ may not exist, e.g. in frozen environments.
     """
-    return Path(__file__).parent / "templates" / name
+    if not hasattr(builtin_template_path, "_template_dir"):
+        builtin_template_path._template_dir = Path(__file__).parent / "templates"
+    return builtin_template_path._template_dir / name
 
 
 def serve(request, path, document_root=None, show_indexes=False):
