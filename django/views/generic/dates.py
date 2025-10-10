@@ -727,11 +727,12 @@ def _get_next_prev(generic_view, date, is_previous, period):
     allow_empty = generic_view.get_allow_empty()
     allow_future = generic_view.get_allow_future()
 
-    get_current = getattr(generic_view, "_get_current_%s" % period)
-    get_next = getattr(generic_view, "_get_next_%s" % period)
+    get_current = getattr(generic_view, f"_get_current_{period}")
+    get_next = getattr(generic_view, f"_get_next_{period}")
 
     # Bounds of the current interval
-    start, end = get_current(date), get_next(date)
+    start = get_current(date)
+    end = get_next(date)
 
     # If allow_empty is True, the naive result will be valid
     if allow_empty:
@@ -740,7 +741,8 @@ def _get_next_prev(generic_view, date, is_previous, period):
         else:
             result = end
 
-        if allow_future or result <= timezone_today():
+        today = timezone_today() if not allow_future else None
+        if allow_future or result <= today:
             return result
         else:
             return None
@@ -751,35 +753,35 @@ def _get_next_prev(generic_view, date, is_previous, period):
     else:
         # Construct a lookup and an ordering depending on whether we're doing
         # a previous date or a next date lookup.
+        date_lookup = generic_view._make_date_lookup_arg
         if is_previous:
-            lookup = {"%s__lt" % date_field: generic_view._make_date_lookup_arg(start)}
-            ordering = "-%s" % date_field
+            lookup = {f"{date_field}__lt": date_lookup(start)}
+            ordering = f"-{date_field}"
         else:
-            lookup = {"%s__gte" % date_field: generic_view._make_date_lookup_arg(end)}
+            lookup = {f"{date_field}__gte": date_lookup(end)}
             ordering = date_field
 
         # Filter out objects in the future if appropriate.
         if not allow_future:
-            # Fortunately, to match the implementation of allow_future,
-            # we need __lte, which doesn't conflict with __lt above.
             if generic_view.uses_datetime_field:
                 now = timezone.now()
             else:
                 now = timezone_today()
-            lookup["%s__lte" % date_field] = now
+            lookup[f"{date_field}__lte"] = now
 
+        # Use iterator over QuerySet to avoid creating an intermediate full list in memory.
         qs = generic_view.get_queryset().filter(**lookup).order_by(ordering)
+        result_obj = next(iter(qs), None)
 
-        # Snag the first object from the queryset; if it doesn't exist that
-        # means there's no next/previous link available.
-        try:
-            result = getattr(qs[0], date_field)
-        except IndexError:
+        if result_obj is None:
             return None
+
+        result = getattr(result_obj, date_field)
 
         # Convert datetimes to dates in the current time zone.
         if generic_view.uses_datetime_field:
             if settings.USE_TZ:
+                # localtime only if USE_TZ is True
                 result = timezone.localtime(result)
             result = result.date()
 
