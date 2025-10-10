@@ -1274,22 +1274,23 @@ class Query(BaseExpression):
         return sql, params
 
     def resolve_lookup_value(self, value, can_reuse, allow_joins, summarize=False):
-        if hasattr(value, "resolve_expression"):
-            value = value.resolve_expression(
+        resolve_expression = getattr(value, "resolve_expression", None)
+        if resolve_expression is not None:
+            return resolve_expression(
                 self,
                 reuse=can_reuse,
                 allow_joins=allow_joins,
                 summarize=summarize,
             )
-        elif isinstance(value, (list, tuple)):
+        type_ = type(value)
+        if type_ is list or type_ is tuple:
             # The items of the iterable may be expressions and therefore need
             # to be resolved independently.
-            values = (
+            values = [
                 self.resolve_lookup_value(sub_value, can_reuse, allow_joins, summarize)
                 for sub_value in value
-            )
-            type_ = type(value)
-            if hasattr(type_, "_make"):  # namedtuple
+            ]
+            if getattr(type_, "_make", None):  # namedtuple
                 return type_(*values)
             return type_(values)
         return value
