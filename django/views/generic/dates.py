@@ -161,7 +161,9 @@ class DayMixin:
 
         The interval is defined by start date <= item date < next start date.
         """
-        return date + datetime.timedelta(days=1)
+        if not hasattr(self, "_one_day_delta"):
+            self._one_day_delta = datetime.timedelta(days=1)
+        return date + self._one_day_delta
 
     def _get_current_day(self, date):
         """Return the start date of the current interval."""
