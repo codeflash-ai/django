@@ -27,6 +27,8 @@ from django.utils.translation import gettext, ngettext
 from .base import VARIABLE_ATTRIBUTE_SEPARATOR
 from .library import Library
 
+_yesno_arg_cache = {}
+
 register = Library()
 
 
@@ -858,7 +860,11 @@ def yesno(value, arg=None):
     if arg is None:
         # Translators: Please do not add spaces around commas.
         arg = gettext("yes,no,maybe")
-    bits = arg.split(",")
+    # Use caching to avoid repeated splitting of the same arg string
+    bits = _yesno_arg_cache.get(arg)
+    if bits is None:
+        bits = arg.split(",")
+        _yesno_arg_cache[arg] = bits
     if len(bits) < 2:
         return value  # Invalid arg.
     try:
