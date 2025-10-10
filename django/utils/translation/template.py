@@ -16,6 +16,10 @@ def blankout(src, char):
     Change every non-whitespace character to the given char.
     Used in the templatize function.
     """
+    # Fast path for char being a single character string
+    if len(char) == 1 and isinstance(src, str):
+        # Use str.join and generator to avoid re overhead
+        return "".join(char if not c.isspace() else c for c in src)
     return dot_re.sub(char, src)
 
 
