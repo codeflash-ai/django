@@ -76,13 +76,26 @@ class MigrationAutodetector:
         Used for full comparison for rename/alter; sometimes a single-level
         deconstruction will not compare correctly.
         """
-        if isinstance(obj, list):
-            return [self.deep_deconstruct(value) for value in obj]
-        elif isinstance(obj, tuple):
+        # Fast path for primitive types
+        obj_type = type(obj)
+        if obj_type is list:
+            # Faster than isinstance and avoids recursion with subclasses
+            result = []
+            append = result.append
+            for value in obj:
+                append(self.deep_deconstruct(value))
+            return result
+        elif obj_type is tuple:
+            # Avoid tuple subclassing overhead
             return tuple(self.deep_deconstruct(value) for value in obj)
-        elif isinstance(obj, dict):
-            return {key: self.deep_deconstruct(value) for key, value in obj.items()}
-        elif isinstance(obj, functools.partial):
+        elif obj_type is dict:
+            # Avoid dict subclassing overhead
+            result = {}
+            for key, value in obj.items():
+                result[key] = self.deep_deconstruct(value)
+            return result
+        elif obj_type is functools.partial:
+            # functools.partial is a builtin type, identity test is safe
             return (
                 obj.func,
                 self.deep_deconstruct(obj.args),
@@ -90,7 +103,7 @@ class MigrationAutodetector:
             )
         elif isinstance(obj, COMPILED_REGEX_TYPE):
             return RegexObject(obj)
-        elif isinstance(obj, type):
+        elif obj_type is type:
             # If this is a type that implements 'deconstruct' as an instance method,
             # avoid treating this as being deconstructible itself - see #22951
             return obj
@@ -100,10 +113,15 @@ class MigrationAutodetector:
                 # we have a field which also returns a name
                 deconstructed = deconstructed[1:]
             path, args, kwargs = deconstructed
+            # Avoid redundant lookups and repeated abstraction layers
+            args_deconstructed = [self.deep_deconstruct(value) for value in args]
+            kwargs_deconstructed = {
+                key: self.deep_deconstruct(value) for key, value in kwargs.items()
+            }
             return (
                 path,
-                [self.deep_deconstruct(value) for value in args],
-                {key: self.deep_deconstruct(value) for key, value in kwargs.items()},
+                args_deconstructed,
+                kwargs_deconstructed,
             )
         else:
             return obj
