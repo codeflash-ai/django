@@ -67,6 +67,10 @@ class AdminSite:
         self._actions = {"delete_selected": actions.delete_selected}
         self._global_actions = self._actions.copy()
         all_sites.add(self)
+        # Optimize: pre-construct the catalog view callable once per AdminSite instance
+        self._js_catalog_view = JavaScriptCatalog.as_view(
+            packages=["django.contrib.admin"]
+        )
 
     def __repr__(self):
         return f"{self.__class__.__name__}(name={self.name!r})"
@@ -377,7 +381,7 @@ class AdminSite:
         `extra_context` is unused but present for consistency with the other
         admin views.
         """
-        return JavaScriptCatalog.as_view(packages=["django.contrib.admin"])(request)
+        return self._js_catalog_view(request)
 
     def logout(self, request, extra_context=None):
         """
