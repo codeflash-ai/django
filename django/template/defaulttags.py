@@ -891,10 +891,11 @@ class TemplateIfParser(IfParser):
 
     def __init__(self, parser, *args, **kwargs):
         self.template_parser = parser
+        self.compile_filter = parser.compile_filter
         super().__init__(*args, **kwargs)
 
     def create_var(self, value):
-        return TemplateLiteral(self.template_parser.compile_filter(value), value)
+        return TemplateLiteral(self.compile_filter(value), value)
 
 
 @register.tag("if")
