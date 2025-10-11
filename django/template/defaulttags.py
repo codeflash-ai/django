@@ -439,7 +439,9 @@ class TemplateTagNode(Node):
         self.tagtype = tagtype
 
     def render(self, context):
-        return self.mapping.get(self.tagtype, "")
+        # Localize mapping to avoid attribute lookup in loop or repeated calls, yet maintain semantics
+        mapping = self.mapping
+        return mapping.get(self.tagtype, "")
 
 
 class URLNode(Node):
