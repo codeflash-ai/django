@@ -19,6 +19,8 @@ from django.utils.crypto import (
 from django.utils.module_loading import import_string
 from django.utils.translation import gettext_noop as _
 
+_LOG2_ALPHABET_LEN = math.log2(len(RANDOM_STRING_CHARS))
+
 UNUSABLE_PASSWORD_PREFIX = "!"  # This will never be a valid encoded hash
 UNUSABLE_PASSWORD_SUFFIX_LENGTH = (
     40  # number of random chars to add after UNUSABLE_PASSWORD_PREFIX
@@ -192,7 +194,7 @@ def mask_hash(hash, show=6, char="*"):
 
 def must_update_salt(salt, expected_entropy):
     # Each character in the salt provides log_2(len(alphabet)) bits of entropy.
-    return len(salt) * math.log2(len(RANDOM_STRING_CHARS)) < expected_entropy
+    return len(salt) * _LOG2_ALPHABET_LEN < expected_entropy
 
 
 class BasePasswordHasher:
@@ -653,6 +655,7 @@ class MD5PasswordHasher(BasePasswordHasher):
         return "%s$%s$%s" % (self.algorithm, salt, hash)
 
     def decode(self, encoded):
+        # Use tuple unpacking for efficiency and readability
         algorithm, salt, hash = encoded.split("$", 2)
         assert algorithm == self.algorithm
         return {
@@ -675,8 +678,11 @@ class MD5PasswordHasher(BasePasswordHasher):
         }
 
     def must_update(self, encoded):
-        decoded = self.decode(encoded)
-        return must_update_salt(decoded["salt"], self.salt_entropy)
+        # Inline the decode to minimize object creation and dictionary lookup
+        algorithm, salt, _hash = encoded.split("$", 2)
+        # 'algorithm' must match; do the assert here and then just use 'salt'
+        assert algorithm == self.algorithm
+        return must_update_salt(salt, self.salt_entropy)
 
     def harden_runtime(self, password, encoded):
         pass
