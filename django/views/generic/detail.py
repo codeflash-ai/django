@@ -65,16 +65,18 @@ class SingleObjectMixin(ContextMixin):
         This method is called by the default implementation of get_object() and
         may not be called if get_object() is overridden.
         """
-        if self.queryset is None:
-            if self.model:
-                return self.model._default_manager.all()
+        queryset = self.queryset
+        if queryset is None:
+            model = self.model
+            if model:
+                return model._default_manager.all()
             else:
                 raise ImproperlyConfigured(
                     "%(cls)s is missing a QuerySet. Define "
                     "%(cls)s.model, %(cls)s.queryset, or override "
                     "%(cls)s.get_queryset()." % {"cls": self.__class__.__name__}
                 )
-        return self.queryset.all()
+        return queryset.all()
 
     def get_slug_field(self):
         """Get the name of a slug field to be used to look up by slug."""
