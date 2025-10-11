@@ -915,14 +915,13 @@ class AddIndex(IndexOperation):
             schema_editor.remove_index(model, self.index)
 
     def deconstruct(self):
-        kwargs = {
-            "model_name": self.model_name,
-            "index": self.index,
-        }
         return (
-            self.__class__.__qualname__,
+            type(self).__qualname__,
             [],
-            kwargs,
+            {
+                "model_name": self.model_name,
+                "index": self.index,
+            },
         )
 
     def describe(self):
