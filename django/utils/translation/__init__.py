@@ -4,6 +4,7 @@ Internationalization support.
 
 from contextlib import ContextDecorator
 from decimal import ROUND_UP, Decimal
+from functools import lru_cache
 
 from django.utils.autoreload import autoreload_started, file_changed
 from django.utils.functional import lazy
@@ -66,9 +67,7 @@ class Trans:
         if settings.USE_I18N:
             from django.utils.translation import trans_real as trans
             from django.utils.translation.reloader import (
-                translation_file_changed,
-                watch_for_translation_changes,
-            )
+                translation_file_changed, watch_for_translation_changes)
 
             autoreload_started.connect(
                 watch_for_translation_changes, dispatch_uid="translation_file_changed"
@@ -211,6 +210,7 @@ def get_language():
     return _trans.get_language()
 
 
+@lru_cache(maxsize=1)
 def get_language_bidi():
     return _trans.get_language_bidi()
 
