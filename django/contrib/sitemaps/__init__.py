@@ -46,7 +46,11 @@ class Sitemap:
     def _languages(self):
         if self.languages is not None:
             return self.languages
-        return [lang_code for lang_code, _ in settings.LANGUAGES]
+        # Cache languages at the class level for efficiency
+        cls = type(self)
+        if not hasattr(cls, "_LANG_CODES_CACHE"):
+            cls._LANG_CODES_CACHE = [lang_code for lang_code, _ in settings.LANGUAGES]
+        return cls._LANG_CODES_CACHE
 
     def _items(self):
         if self.i18n:
