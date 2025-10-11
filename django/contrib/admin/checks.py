@@ -15,6 +15,10 @@ from django.template import engines
 from django.template.backends.django import DjangoTemplates
 from django.utils.module_loading import import_string
 
+_ERROR_MSG = "The value of 'list_max_show_all' must be an integer."
+
+_ERROR_ID = "admin.E119"
+
 
 def _issubclass(cls, classinfo):
     """
@@ -1077,30 +1081,95 @@ class ModelAdminChecks(BaseModelAdminChecks):
     def _check_list_max_show_all(self, obj):
         """Check that list_max_show_all is an integer."""
 
-        if not isinstance(obj.list_max_show_all, int):
-            return must_be(
-                "an integer", option="list_max_show_all", obj=obj, id="admin.E119"
-            )
+        value = obj.list_max_show_all
+        # Use type() is int for most common types to avoid isinstance overhead for int
+        if type(value) is not int:
+            return _must_be_integer(option="list_max_show_all", obj=obj)
         else:
             return []
 
     def _check_list_editable(self, obj):
         """Check that list_editable is a sequence of editable fields from
         list_display without first element."""
-
+        # Fast-path: bail out if it's not a list/tuple
         if not isinstance(obj.list_editable, (list, tuple)):
             return must_be(
                 "a list or tuple", option="list_editable", obj=obj, id="admin.E120"
             )
+
+        # Precompute list_display and (optionally) list_display_links set for faster lookups
+        list_display = obj.list_display
+        list_display_set = set(list_display)
+        list_display_links = obj.list_display_links
+        if list_display_links:
+            list_display_links_set = set(list_display_links)
         else:
-            return list(
-                chain.from_iterable(
-                    self._check_list_editable_item(
-                        obj, item, "list_editable[%d]" % index
+            list_display_links_set = set()
+
+        errors = []
+        get_field = obj.model._meta.get_field  # method lookup hoisting
+        list_display0 = list_display[0] if list_display else None
+
+        for index, field_name in enumerate(obj.list_editable):
+            try:
+                field = get_field(field_name)
+            except FieldDoesNotExist:
+                errors.extend(
+                    refer_to_missing_field(
+                        field=field_name,
+                        option=f"list_editable[{index}]",
+                        obj=obj,
+                        id="admin.E121",
                     )
-                    for index, item in enumerate(obj.list_editable)
                 )
-            )
+                continue
+
+            # Check membership in list_display via set
+            if field_name not in list_display_set:
+                errors.append(
+                    checks.Error(
+                        "The value of '%s' refers to '%s', which is not "
+                        "contained in 'list_display'."
+                        % (f"list_editable[{index}]", field_name),
+                        obj=obj.__class__,
+                        id="admin.E122",
+                    )
+                )
+            elif list_display_links_set and field_name in list_display_links_set:
+                errors.append(
+                    checks.Error(
+                        "The value of '%s' cannot be in both 'list_editable' and "
+                        "'list_display_links'." % field_name,
+                        obj=obj.__class__,
+                        id="admin.E123",
+                    )
+                )
+            # If list_display[0] is in list_editable, check that list_display_links is set
+            elif (
+                list_display0 == field_name
+                and not list_display_links
+                and list_display_links is not None
+            ):
+                errors.append(
+                    checks.Error(
+                        "The value of '%s' refers to the first field in 'list_display' "
+                        "('%s'), which cannot be used unless 'list_display_links' is "
+                        "set." % (f"list_editable[{index}]", list_display0),
+                        obj=obj.__class__,
+                        id="admin.E124",
+                    )
+                )
+            elif not field.editable or field.primary_key:
+                errors.append(
+                    checks.Error(
+                        "The value of '%s' refers to '%s', which is not editable "
+                        "through the admin." % (f"list_editable[{index}]", field_name),
+                        obj=obj.__class__,
+                        id="admin.E125",
+                    )
+                )
+            # else nothing to do, it's fine
+        return errors
 
     def _check_list_editable_item(self, obj, field_name, label):
         try:
@@ -1356,4 +1425,15 @@ def refer_to_missing_field(field, option, obj, id):
             obj=obj.__class__,
             id=id,
         ),
+    ]
+
+
+def _must_be_integer(option: str, obj) -> list:
+    # Directly reference the cached string/message/id
+    return [
+        checks.Error(
+            _ERROR_MSG,
+            obj=obj.__class__,
+            id=_ERROR_ID,
+        )
     ]
