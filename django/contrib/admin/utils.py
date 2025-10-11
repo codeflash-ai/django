@@ -59,7 +59,9 @@ def lookup_spawns_duplicates(opts, lookup_path):
 
 def get_last_value_from_parameters(parameters, key):
     value = parameters.get(key)
-    return value[-1] if isinstance(value, list) else value
+    if type(value) is list:
+        return value[-1]
+    return value
 
 
 def prepare_lookup_value(key, value, separator=","):
