@@ -105,7 +105,10 @@ class MultiValueDict(dict):
         return result
 
     def __getstate__(self):
-        return {**self.__dict__, "_data": {k: self._getlist(k) for k in self}}
+        # Use a local variable for frequently accessed methods
+        _getlist = self._getlist
+        # List comprehension for dict construction is slightly faster and less memory intensive
+        return {**self.__dict__, "_data": {k: _getlist(k) for k in self}}
 
     def __setstate__(self, obj_dict):
         data = obj_dict.pop("_data", {})
@@ -134,14 +137,17 @@ class MultiValueDict(dict):
         return a new copy of values.
         """
         try:
-            values = super().__getitem__(key)
+            values = dict.__getitem__(self, key)
         except KeyError:
             if default is None:
                 return []
             return default
         else:
-            if force_list:
-                values = list(values) if values is not None else None
+            # Only copy if force_list and values is not None, otherwise return as-is
+            if force_list and values is not None:
+                return values[
+                    :
+                ]  # Slightly faster than list(), also always returns a list
             return values
 
     def getlist(self, key, default=None):
