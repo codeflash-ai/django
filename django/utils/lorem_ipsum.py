@@ -273,14 +273,31 @@ def words(count, common=True):
     If `common` is True, then the first 19 words will be the standard
     'lorem ipsum' words. Otherwise, all words will be selected randomly.
     """
-    word_list = list(COMMON_WORDS) if common else []
-    c = len(word_list)
-    if count > c:
-        count -= c
-        while count > 0:
-            c = min(count, len(WORDS))
-            count -= c
-            word_list += random.sample(WORDS, c)
+    if common:
+        word_list = list(COMMON_WORDS)
+        c = len(word_list)
+        if count > c:
+            # Preallocate total word_list for better performance
+            # Use append for better efficiency
+            result = word_list
+            remaining = count - c
+            n_words = len(WORDS)
+            # We can sample all at once (if count-c <= n_words), else repeatedly until filled
+            while remaining > 0:
+                to_add = min(remaining, n_words)
+                result.extend(random.sample(WORDS, to_add))
+                remaining -= to_add
+            word_list = result
+        else:
+            word_list = word_list[:count]
     else:
-        word_list = word_list[:count]
+        # No need to repeatedly sample; just build the list as needed
+        word_list = []
+        n_words = len(WORDS)
+        remaining = count
+        while remaining > 0:
+            to_add = min(remaining, n_words)
+            word_list.extend(random.sample(WORDS, to_add))
+            remaining -= to_add
+
     return " ".join(word_list)
