@@ -27,9 +27,8 @@ class Sitemap:
     x_default = False
 
     def _get(self, name, item, default=None):
-        try:
-            attr = getattr(self, name)
-        except AttributeError:
+        attr = getattr(self, name, None)
+        if attr is None:
             return default
         if callable(attr):
             if self.i18n:
@@ -64,7 +63,8 @@ class Sitemap:
         if self.i18n:
             obj, lang_code = item
             # Activate language from item-tuple or forced one before calling location.
-            with translation.override(force_lang_code or lang_code):
+            lang = force_lang_code or lang_code
+            with translation.override(lang):
                 return self._get("location", item)
         return self._get("location", item)
 
