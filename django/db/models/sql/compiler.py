@@ -205,24 +205,27 @@ class SQLCompiler:
             # columns and removing non-primary key columns referring to them.
             # Unmanaged models are excluded because they could be representing
             # database views on which the optimization might not be allowed.
-            pks = {
-                expr
-                for expr in expressions
+
+            # Single-pass loop to avoid redundant computation
+            pks = set()
+            aliases = set()
+            for expr in expressions:
                 if (
                     hasattr(expr, "target")
                     and expr.target.primary_key
                     and self.connection.features.allows_group_by_selected_pks_on_model(
                         expr.target.model
                     )
-                )
-            }
-            aliases = {expr.alias for expr in pks}
+                ):
+                    pks.add(expr)
+                    aliases.add(expr.alias)
+
+            # Avoid repeated set lookups by combining alias and having checks in one pass
+            pks_or_having = pks | set(having)
             expressions = [
                 expr
                 for expr in expressions
-                if expr in pks
-                or expr in having
-                or getattr(expr, "alias", None) not in aliases
+                if expr in pks_or_having or getattr(expr, "alias", None) not in aliases
             ]
         return expressions
 
