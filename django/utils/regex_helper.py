@@ -7,8 +7,8 @@ should be good enough for a large class of URLS, however.
 """
 
 import re
-
-from django.utils.functional import SimpleLazyObject
+from functools import lru_cache
+from typing import Any
 
 # Mapping of an escape character to a representative of that class. So, e.g.,
 # "\w" is replaced by "x" in a reverse URL. A value of None means to ignore
@@ -342,13 +342,15 @@ def flatten_result(source):
 
 def _lazy_re_compile(regex, flags=0):
     """Lazily compile a regex with flags."""
+    # Fast path for (str|bytes) regexes: cache by pattern and flags, return compiled pattern directly
+    if isinstance(regex, (str, bytes)):
+        return _compiled_re_cache(regex, flags)
+    else:
+        # If regex is already compiled, flags must be empty and simply return the regex
+        assert not flags, "flags must be empty if regex is passed pre-compiled"
+        return regex
 
-    def _compile():
-        # Compile the regex if it was not passed pre-compiled.
-        if isinstance(regex, (str, bytes)):
-            return re.compile(regex, flags)
-        else:
-            assert not flags, "flags must be empty if regex is passed pre-compiled"
-            return regex
 
-    return SimpleLazyObject(_compile)
+@lru_cache(maxsize=128)
+def _compiled_re_cache(regex: str, flags: int) -> Any:
+    return re.compile(regex, flags)
