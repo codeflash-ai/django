@@ -186,7 +186,7 @@ def mask_hash(hash, show=6, char="*"):
     rest are masked with ``char`` for security reasons.
     """
     masked = hash[:show]
-    masked += char * len(hash[show:])
+    masked += char * max(len(hash) - show, 0)
     return masked
 
 
@@ -506,12 +506,13 @@ class BCryptSHA256PasswordHasher(BasePasswordHasher):
     def decode(self, encoded):
         algorithm, empty, algostr, work_factor, data = encoded.split("$", 4)
         assert algorithm == self.algorithm
+        work_factor_int = int(work_factor)
         return {
             "algorithm": algorithm,
             "algostr": algostr,
             "checksum": data[22:],
             "salt": data[:22],
-            "work_factor": int(work_factor),
+            "work_factor": work_factor_int,
         }
 
     def verify(self, password, encoded):
