@@ -193,7 +193,7 @@ class MultiValueDict(dict):
 
     def copy(self):
         """Return a shallow copy of this object."""
-        return copy.copy(self)
+        return self.__class__(self)
 
     def update(self, *args, **kwargs):
         """Extend rather than replace existing key lists."""
