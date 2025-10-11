@@ -215,16 +215,25 @@ class NestedObjects(Collector):
         )
 
     def _nested(self, obj, seen, format_callback):
+        # Shortcut for seen-obj: return empty list
         if obj in seen:
             return []
         seen.add(obj)
-        children = []
-        for child in self.edges.get(obj, ()):
-            children.extend(self._nested(child, seen, format_callback))
+        children_objs = self.edges.get(obj)
+        if children_objs:
+            # Avoid unnecessary list reallocations by computing once
+            children = []
+            extend = children.extend  # local var for fast-loop
+            for child in children_objs:
+                extend(self._nested(child, seen, format_callback))
+        else:
+            children = None
+
         if format_callback:
             ret = [format_callback(obj)]
         else:
             ret = [obj]
+
         if children:
             ret.append(children)
         return ret
@@ -235,8 +244,12 @@ class NestedObjects(Collector):
         """
         seen = set()
         roots = []
-        for root in self.edges.get(None, ()):
-            roots.extend(self._nested(root, seen, format_callback))
+        root_objs = self.edges.get(None)
+        if not root_objs:
+            return roots
+        extend = roots.extend  # local var for fast-loop
+        for root in root_objs:
+            extend(self._nested(root, seen, format_callback))
         return roots
 
     def can_fast_delete(self, *args, **kwargs):
