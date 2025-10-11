@@ -435,11 +435,14 @@ class RenameModel(ModelOperation):
         return self.new_name.lower()
 
     def deconstruct(self):
-        kwargs = {
-            "old_name": self.old_name,
-            "new_name": self.new_name,
-        }
-        return (self.__class__.__qualname__, [], kwargs)
+        return (
+            self.__class__.__qualname__,
+            [],
+            {
+                "old_name": self.old_name,
+                "new_name": self.new_name,
+            },
+        )
 
     def state_forwards(self, app_label, state):
         state.rename_model(app_label, self.old_name, self.new_name)
