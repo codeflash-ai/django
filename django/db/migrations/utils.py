@@ -39,15 +39,17 @@ def resolve_relation(model, app_label=None, model_name=None):
                     "recursive relationships."
                 )
             return app_label, model_name
-        if "." in model:
-            app_label, model_name = model.split(".", 1)
-            return app_label, model_name.lower()
+        dot_index = model.find(".")
+        if dot_index != -1:
+            app_label_, model_name_ = model[:dot_index], model[dot_index + 1 :]
+            return app_label_, model_name_.lower()
         if app_label is None:
             raise TypeError(
                 "app_label must be provided to resolve unscoped model relationships."
             )
         return app_label, model.lower()
-    return model._meta.app_label, model._meta.model_name
+    meta = model._meta
+    return meta.app_label, meta.model_name
 
 
 def field_references(
@@ -66,42 +68,40 @@ def field_references(
     incurs. This should not be an issue when this function is used to determine
     whether or not an optimization can take place.
     """
+    # Localize for performance in tight loops
     remote_field = field.remote_field
     if not remote_field:
         return False
     references_to = None
     references_through = None
-    if resolve_relation(remote_field.model, *model_tuple) == reference_model_tuple:
+
+    # Only call resolve_relation once per relevant check
+    remote_field_model = remote_field.model
+    if resolve_relation(remote_field_model, *model_tuple) == reference_model_tuple:
+        # Use direct attribute access where possible
         to_fields = getattr(field, "to_fields", None)
         if (
             reference_field_name is None
-            or
-            # Unspecified to_field(s).
-            to_fields is None
-            or
-            # Reference to primary key.
-            (
+            or to_fields is None
+            or (
                 None in to_fields
                 and (reference_field is None or reference_field.primary_key)
             )
-            or
-            # Reference to field.
-            reference_field_name in to_fields
+            or (reference_field_name in to_fields)
         ):
             references_to = (remote_field, to_fields)
+
+    # Avoid repeated getattr with a single lookup
     through = getattr(remote_field, "through", None)
-    if through and resolve_relation(through, *model_tuple) == reference_model_tuple:
-        through_fields = remote_field.through_fields
-        if (
-            reference_field_name is None
-            or
-            # Unspecified through_fields.
-            through_fields is None
-            or
-            # Reference to field.
-            reference_field_name in through_fields
-        ):
-            references_through = (remote_field, through_fields)
+    if through:
+        if resolve_relation(through, *model_tuple) == reference_model_tuple:
+            through_fields = remote_field.through_fields
+            if (
+                reference_field_name is None
+                or through_fields is None
+                or reference_field_name in through_fields
+            ):
+                references_through = (remote_field, through_fields)
     if not (references_to or references_through):
         return False
     return FieldReference(references_to, references_through)
