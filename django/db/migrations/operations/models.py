@@ -102,10 +102,10 @@ class CreateModel(ModelOperation):
             schema_editor.delete_model(model)
 
     def describe(self):
-        return "Create %smodel %s" % (
-            "proxy " if self.options.get("proxy", False) else "",
-            self.name,
-        )
+        if self.options.get("proxy", False):
+            return f"Create proxy model {self.name}"
+        else:
+            return f"Create model {self.name}"
 
     @property
     def migration_name_fragment(self):
