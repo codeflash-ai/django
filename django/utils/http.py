@@ -213,6 +213,18 @@ def quote_etag(etag_str):
     If the provided string is already a quoted ETag, return it. Otherwise, wrap
     the string in quotes, making it a strong ETag.
     """
+    # Fast path: check for common ETag formats before expensive regex
+    if len(etag_str) >= 2:
+        if etag_str[0] == '"' and etag_str[-1] == '"' and '"' not in etag_str[1:-1]:
+            return etag_str
+        elif (
+            len(etag_str) >= 4
+            and etag_str.startswith('W/"')
+            and etag_str[-1] == '"'
+            and '"' not in etag_str[3:-1]
+        ):
+            return etag_str
+
     if ETAG_MATCH.match(etag_str):
         return etag_str
     else:
