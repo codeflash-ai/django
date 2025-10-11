@@ -129,14 +129,13 @@ def get_command_line_option(argv, option):
 
 def normalize_path_patterns(patterns):
     """Normalize an iterable of glob style patterns based on OS."""
-    patterns = [os.path.normcase(p) for p in patterns]
-    dir_suffixes = {"%s*" % path_sep for path_sep in {"/", os.sep}}
+    normcase = os.path.normcase
+    patterns = [normcase(p) for p in patterns]
+    dir_suffixes = ("/*", f"{os.sep}*")
     norm_patterns = []
     for pattern in patterns:
-        for dir_suffix in dir_suffixes:
-            if pattern.endswith(dir_suffix):
-                norm_patterns.append(pattern.removesuffix(dir_suffix))
-                break
+        if pattern.endswith(dir_suffixes):
+            norm_patterns.append(pattern[:-2])
         else:
             norm_patterns.append(pattern)
     return norm_patterns
