@@ -30,16 +30,9 @@ class SingleObjectMixin(ContextMixin):
         if queryset is None:
             queryset = self.get_queryset()
 
-        # Next, try looking up by primary key.
         pk = self.kwargs.get(self.pk_url_kwarg)
         slug = self.kwargs.get(self.slug_url_kwarg)
-        if pk is not None:
-            queryset = queryset.filter(pk=pk)
-
-        # Next, try looking up by slug.
-        if slug is not None and (pk is None or self.query_pk_and_slug):
-            slug_field = self.get_slug_field()
-            queryset = queryset.filter(**{slug_field: slug})
+        query_pk_and_slug = self.query_pk_and_slug
 
         # If none of those are defined, it's an error.
         if pk is None and slug is None:
@@ -48,13 +41,22 @@ class SingleObjectMixin(ContextMixin):
                 "pk or a slug in the URLconf." % self.__class__.__name__
             )
 
+        lookup_queryset = queryset
+        if pk is not None:
+            lookup_queryset = lookup_queryset.filter(pk=pk)
+
+        if slug is not None and (pk is None or query_pk_and_slug):
+            slug_field = self.get_slug_field()
+            lookup_queryset = lookup_queryset.filter(**{slug_field: slug})
+
+        model = lookup_queryset.model
         try:
             # Get the single item from the filtered queryset
-            obj = queryset.get()
-        except queryset.model.DoesNotExist:
+            obj = lookup_queryset.get()
+        except model.DoesNotExist:
             raise Http404(
                 _("No %(verbose_name)s found matching the query")
-                % {"verbose_name": queryset.model._meta.verbose_name}
+                % {"verbose_name": model._meta.verbose_name}
             )
         return obj
 
@@ -66,8 +68,9 @@ class SingleObjectMixin(ContextMixin):
         may not be called if get_object() is overridden.
         """
         if self.queryset is None:
-            if self.model:
-                return self.model._default_manager.all()
+            model = self.model
+            if model:
+                return model._default_manager.all()
             else:
                 raise ImproperlyConfigured(
                     "%(cls)s is missing a QuerySet. Define "
