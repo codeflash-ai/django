@@ -228,17 +228,27 @@ class EmailValidator:
             raise ValidationError(self.message, code=self.code, params={"value": value})
 
     def validate_domain_part(self, domain_part):
-        if self.domain_regex.match(domain_part):
+        regex = self.domain_regex
+        literal_regex = self.literal_regex
+
+        # Fast path for common valid case
+        if regex.match(domain_part):
             return True
 
-        literal_match = self.literal_regex.match(domain_part)
+        # Try literal match
+        literal_match = literal_regex.match(domain_part)
         if literal_match:
             ip_address = literal_match[1]
+            # Inline and optimize ipv46 check to avoid exceptions for valid cases
             try:
-                validate_ipv46_address(ip_address)
+                validate_ipv4_address(ip_address)
                 return True
             except ValidationError:
-                pass
+                try:
+                    validate_ipv6_address(ip_address)
+                    return True
+                except ValidationError:
+                    pass
         return False
 
     def __eq__(self, other):
@@ -292,6 +302,7 @@ def validate_ipv6_address(value):
 
 
 def validate_ipv46_address(value):
+    # Fast path: try IPv4 first, then IPv6, avoid constructing exceptions unless needed
     try:
         validate_ipv4_address(value)
     except ValidationError:
