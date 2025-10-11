@@ -1237,7 +1237,7 @@ class RemoveConstraint(IndexOperation):
         )
 
     def describe(self):
-        return "Remove constraint %s from model %s" % (self.name, self.model_name)
+        return f"Remove constraint {self.name} from model {self.model_name}"
 
     @property
     def migration_name_fragment(self):
