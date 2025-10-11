@@ -320,10 +320,10 @@ class IfNode(Node):
                     match = condition.eval(context)
                 except VariableDoesNotExist:
                     match = None
-            else:  # else clause
-                match = True
 
-            if match:
+                if match:
+                    return nodelist.render(context)
+            else:  # else clause
                 return nodelist.render(context)
 
         return ""
