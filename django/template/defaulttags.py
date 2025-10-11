@@ -1159,12 +1159,20 @@ def now(parser, token):
         It is {% now "jS F Y H:i" %}
     """
     bits = token.split_contents()
+    bits_len = len(bits)
     asvar = None
-    if len(bits) == 4 and bits[-2] == "as":
-        asvar = bits[-1]
-        bits = bits[:-2]
-    if len(bits) != 2:
+
+    if bits_len == 4:
+        # Avoid repeated indexing, assign only if necessary
+        if bits[-2] == "as":
+            asvar = bits[3]
+            # Use slicing only once
+            bits = bits[:2]
+            bits_len = 2  # No need for next len(), as it's always 2 now
+
+    if bits_len != 2:
         raise TemplateSyntaxError("'now' statement takes one argument")
+
     format_string = bits[1][1:-1]
     return NowNode(format_string, asvar)
 
