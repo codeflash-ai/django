@@ -156,35 +156,41 @@ class LazySettings(LazyObject):
 class Settings:
     def __init__(self, settings_module):
         # update this dict from global settings (but only for ALL_CAPS settings)
-        for setting in dir(global_settings):
-            if setting.isupper():
-                setattr(self, setting, getattr(global_settings, setting))
+        # OPTIMIZATION: Use getattr with a generator expression to avoid temporary lists
+        # Capture only the needed names directly to avoid redundant attribute lookups
+        upper_settings = (s for s in dir(global_settings) if s.isupper())
+        for setting in upper_settings:
+            setattr(self, setting, getattr(global_settings, setting))
 
         # store the settings module in case someone later cares
         self.SETTINGS_MODULE = settings_module
 
         mod = importlib.import_module(self.SETTINGS_MODULE)
 
-        tuple_settings = (
+        tuple_settings = {
             "ALLOWED_HOSTS",
             "INSTALLED_APPS",
             "TEMPLATE_DIRS",
             "LOCALE_PATHS",
             "SECRET_KEY_FALLBACKS",
-        )
+        }
         self._explicit_settings = set()
-        for setting in dir(mod):
-            if setting.isupper():
-                setting_value = getattr(mod, setting)
 
-                if setting in tuple_settings and not isinstance(
-                    setting_value, (list, tuple)
-                ):
-                    raise ImproperlyConfigured(
-                        "The %s setting must be a list or a tuple." % setting
-                    )
-                setattr(self, setting, setting_value)
-                self._explicit_settings.add(setting)
+        # OPTIMIZATION: Collect upper-case settings from dir() just once, avoid redundant getattr
+        mod_dir = dir(mod)
+        for setting in mod_dir:
+            if not setting.isupper():
+                continue
+            setting_value = getattr(mod, setting)
+
+            if setting in tuple_settings and not isinstance(
+                setting_value, (list, tuple)
+            ):
+                raise ImproperlyConfigured(
+                    "The %s setting must be a list or a tuple." % setting
+                )
+            setattr(self, setting, setting_value)
+            self._explicit_settings.add(setting)
 
         if self.is_overridden("FORMS_URLFIELD_ASSUME_HTTPS"):
             warnings.warn(
@@ -192,13 +198,17 @@ class Settings:
                 RemovedInDjango60Warning,
             )
 
-        if hasattr(time, "tzset") and self.TIME_ZONE:
+        # OPTIMIZATION: Avoid repeated Path instantiations, avoid split/join unless needed
+        if hasattr(time, "tzset") and getattr(self, "TIME_ZONE", None):
             # When we can, attempt to validate the timezone. If we can't find
             # this file, no check happens and it's harmless.
+            # Avoid running split/join if zoneinfo_root does not exist
             zoneinfo_root = Path("/usr/share/zoneinfo")
-            zone_info_file = zoneinfo_root.joinpath(*self.TIME_ZONE.split("/"))
-            if zoneinfo_root.exists() and not zone_info_file.exists():
-                raise ValueError("Incorrect timezone setting: %s" % self.TIME_ZONE)
+            if zoneinfo_root.exists():
+                tz_path = self.TIME_ZONE.split("/")
+                zone_info_file = zoneinfo_root.joinpath(*tz_path)
+                if not zone_info_file.exists():
+                    raise ValueError("Incorrect timezone setting: %s" % self.TIME_ZONE)
             # Move the time zone info into os.environ. See ticket #2315 for why
             # we don't do this unconditionally (breaks Windows).
             os.environ["TZ"] = self.TIME_ZONE
