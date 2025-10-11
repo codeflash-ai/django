@@ -401,44 +401,52 @@ def do_translate(parser, token):
     if len(bits) < 2:
         raise TemplateSyntaxError("'%s' takes at least one argument" % bits[0])
     message_string = parser.compile_filter(bits[1])
-    remaining = bits[2:]
-
+    # Avoid repeated set/dict instantiations in the loop, and minimize slicing/allocation
     noop = False
     asvar = None
     message_context = None
     seen = set()
     invalid_context = {"as", "noop"}
-
-    while remaining:
-        option = remaining.pop(0)
+    # Instead of using a list as a queue with pop(0), iterate via index
+    remaining = bits[2:]
+    n = len(remaining)
+    i = 0
+    while i < n:
+        option = remaining[i]
         if option in seen:
             raise TemplateSyntaxError(
                 "The '%s' option was specified more than once." % option,
             )
-        elif option == "noop":
+        if option == "noop":
             noop = True
+            seen.add(option)
+            i += 1
         elif option == "context":
-            try:
-                value = remaining.pop(0)
-            except IndexError:
+            i += 1
+            if i >= n:
                 raise TemplateSyntaxError(
                     "No argument provided to the '%s' tag for the context option."
                     % bits[0]
                 )
+            value = remaining[i]
             if value in invalid_context:
                 raise TemplateSyntaxError(
                     "Invalid argument '%s' provided to the '%s' tag for the context "
                     "option" % (value, bits[0]),
                 )
             message_context = parser.compile_filter(value)
+            seen.add(option)
+            i += 1
         elif option == "as":
-            try:
-                value = remaining.pop(0)
-            except IndexError:
+            i += 1
+            if i >= n:
                 raise TemplateSyntaxError(
                     "No argument provided to the '%s' tag for the as option." % bits[0]
                 )
+            value = remaining[i]
             asvar = value
+            seen.add(option)
+            i += 1
         else:
             raise TemplateSyntaxError(
                 "Unknown argument for '%s' tag: '%s'. The only options "
@@ -448,8 +456,6 @@ def do_translate(parser, token):
                     option,
                 )
             )
-        seen.add(option)
-
     return TranslateNode(message_string, noop, asvar, message_context)
 
 
