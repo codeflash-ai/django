@@ -86,15 +86,18 @@ def do_cache(parser, token):
     tokens = token.split_contents()
     if len(tokens) < 3:
         raise TemplateSyntaxError("'%r' tag requires at least 2 arguments." % tokens[0])
+
+    compile_filter = parser.compile_filter
+
     if len(tokens) > 3 and tokens[-1].startswith("using="):
-        cache_name = parser.compile_filter(tokens[-1].removeprefix("using="))
+        cache_name = compile_filter(tokens[-1][6:])
         tokens = tokens[:-1]
     else:
         cache_name = None
     return CacheNode(
         nodelist,
-        parser.compile_filter(tokens[1]),
+        compile_filter(tokens[1]),
         tokens[2],  # fragment_name can't be a variable.
-        [parser.compile_filter(t) for t in tokens[3:]],
+        [compile_filter(t) for t in tokens[3:]],
         cache_name,
     )
