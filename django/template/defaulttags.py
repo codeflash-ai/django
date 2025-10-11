@@ -710,15 +710,20 @@ def do_filter(parser, token):
     """
     # token.split_contents() isn't useful here because this tag doesn't accept
     # variable as arguments.
-    _, rest = token.contents.split(None, 1)
-    filter_expr = parser.compile_filter("var|%s" % (rest))
-    for func, unused in filter_expr.filters:
+    try:
+        rest = token.contents.split(None, 1)[1]
+    except IndexError:
+        raise TemplateSyntaxError('"filter" tag requires filters as argument')
+
+    filter_expr = parser.compile_filter(f"var|{rest}")
+    # Optimize by performing the check in a single pass without unpacking tuples
+    for func, _ in filter_expr.filters:
         filter_name = getattr(func, "_filter_name", None)
-        if filter_name in ("escape", "safe"):
+        if filter_name == "escape" or filter_name == "safe":
             raise TemplateSyntaxError(
-                '"filter %s" is not permitted.  Use the "autoescape" tag instead.'
-                % filter_name
+                f'"filter {filter_name}" is not permitted.  Use the "autoescape" tag instead.'
             )
+
     nodelist = parser.parse(("endfilter",))
     parser.delete_first_token()
     return FilterNode(filter_expr, nodelist)
