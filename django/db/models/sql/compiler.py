@@ -33,7 +33,7 @@ class PositionRef(Ref):
         super().__init__(refs, source)
 
     def as_sql(self, compiler, connection):
-        return str(self.ordinal), ()
+        return f"{self.ordinal}", ()
 
 
 class SQLCompiler:
