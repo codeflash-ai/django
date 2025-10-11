@@ -205,11 +205,16 @@ def check_ssl_redirect(app_configs, **kwargs):
 
 
 def _check_secret_key(secret_key):
-    return (
-        len(set(secret_key)) >= SECRET_KEY_MIN_UNIQUE_CHARACTERS
-        and len(secret_key) >= SECRET_KEY_MIN_LENGTH
-        and not secret_key.startswith(SECRET_KEY_INSECURE_PREFIX)
-    )
+    # Early exit if length is insufficient for a quick fail (saves making a set)
+    if len(secret_key) < SECRET_KEY_MIN_LENGTH:
+        return False
+    # Avoid building set if prefix is present (which is rare and inexpensive to check)
+    if secret_key.startswith(SECRET_KEY_INSECURE_PREFIX):
+        return False
+    # Only then build set for uniqueness
+    if len(set(secret_key)) < SECRET_KEY_MIN_UNIQUE_CHARACTERS:
+        return False
+    return True
 
 
 @register(Tags.security, deploy=True)
