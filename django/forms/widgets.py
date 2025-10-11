@@ -235,7 +235,7 @@ class Widget(metaclass=MediaDefiningClass):
     use_fieldset = False
 
     def __init__(self, attrs=None):
-        self.attrs = {} if attrs is None else attrs.copy()
+        self.attrs = attrs.copy() if attrs is not None else {}
 
     def __deepcopy__(self, memo):
         obj = copy.copy(self)
