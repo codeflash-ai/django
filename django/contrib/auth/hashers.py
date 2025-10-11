@@ -627,11 +627,14 @@ class ScryptPasswordHasher(BasePasswordHasher):
         }
 
     def must_update(self, encoded):
-        decoded = self.decode(encoded)
+        algorithm, work_factor, salt, block_size, parallelism, hash_ = encoded.split(
+            "$", 6
+        )
+        assert algorithm == self.algorithm
         return (
-            decoded["work_factor"] != self.work_factor
-            or decoded["block_size"] != self.block_size
-            or decoded["parallelism"] != self.parallelism
+            int(work_factor) != self.work_factor
+            or int(block_size) != self.block_size
+            or int(parallelism) != self.parallelism
         )
 
     def harden_runtime(self, password, encoded):
