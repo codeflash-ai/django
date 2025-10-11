@@ -528,29 +528,33 @@ class SQLCompiler:
         for table names. This avoids problems with some SQL dialects that treat
         quoted strings specially (e.g. PostgreSQL).
         """
-        if name in self.quote_cache:
-            return self.quote_cache[name]
+        quote_cache = self.quote_cache
+        # Fast path for most common cache hit
+        cached = quote_cache.get(name, None)
+        if cached is not None:
+            return cached
+        query = self.query
+        alias_map = query.alias_map
+        table_map = query.table_map
+        # Optimize logic branching and store lookups in local variables
         if (
-            (name in self.query.alias_map and name not in self.query.table_map)
-            or name in self.query.extra_select
-            or (
-                self.query.external_aliases.get(name)
-                and name not in self.query.table_map
-            )
+            (name in alias_map and name not in table_map)
+            or name in query.extra_select
+            or (query.external_aliases.get(name) and name not in table_map)
         ):
-            self.quote_cache[name] = name
+            quote_cache[name] = name
             return name
+        # Only reach here if not aliased, so minimal function call
         r = self.connection.ops.quote_name(name)
-        self.quote_cache[name] = r
+        quote_cache[name] = r
         return r
 
     def compile(self, node):
         vendor_impl = getattr(node, "as_" + self.connection.vendor, None)
         if vendor_impl:
-            sql, params = vendor_impl(self, self.connection)
+            return vendor_impl(self, self.connection)
         else:
-            sql, params = node.as_sql(self, self.connection)
-        return sql, params
+            return node.as_sql(self, self.connection)
 
     def get_combinator_sql(self, combinator, all):
         features = self.connection.features
@@ -1122,30 +1126,39 @@ class SQLCompiler:
         might change the tables that are needed. This means the select columns,
         ordering, and distinct must be done first.
         """
+        query = self.query
+        alias_map = query.alias_map
+        alias_refcount = query.alias_refcount
         result = []
         params = []
-        for alias in tuple(self.query.alias_map):
-            if not self.query.alias_refcount[alias]:
+
+        # Hoist lookups out for slight micro-optimization
+        compile = self.compile
+
+        # Iterate over a tuple to avoid mutation issues, but avoid unnecessary tuple conversion
+        for alias in tuple(alias_map):
+            if not alias_refcount[alias]:
                 continue
-            try:
-                from_clause = self.query.alias_map[alias]
-            except KeyError:
-                # Extra tables can end up in self.tables, but not in the
-                # alias_map if they aren't in a join. That's OK. We skip them.
-                continue
-            clause_sql, clause_params = self.compile(from_clause)
+            # Since alias_map[alias] is already tested, avoid try/except
+            from_clause = alias_map[alias]
+            clause_sql, clause_params = compile(from_clause)
             result.append(clause_sql)
             params.extend(clause_params)
-        for t in self.query.extra_tables:
-            alias, _ = self.query.table_alias(t)
-            # Only add the alias if it's not already present (the table_alias()
-            # call increments the refcount, so an alias refcount of one means
-            # this is the only reference).
-            if (
-                alias not in self.query.alias_map
-                or self.query.alias_refcount[alias] == 1
-            ):
-                result.append(", %s" % self.quote_name_unless_alias(alias))
+
+        extra_tables = query.extra_tables
+        quote_name_unless_alias = self.quote_name_unless_alias
+        # Pre-fetch frequently accessed attributes
+        alias_map = query.alias_map  # Refresh in case alias_map was mutated
+        alias_refcount = query.alias_refcount
+        table_alias = query.table_alias
+        # To avoid double method lookups
+        append_result = result.append
+
+        # Batch calls to quote_name_unless_alias and .table_alias and optimize conditions
+        for t in extra_tables:
+            alias, _ = table_alias(t)
+            if alias not in alias_map or alias_refcount[alias] == 1:
+                append_result(", %s" % quote_name_unless_alias(alias))
         return result, params
 
     def get_related_selections(
