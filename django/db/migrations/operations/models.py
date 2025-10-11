@@ -860,7 +860,9 @@ class AlterModelManagers(ModelOptionOperation):
         super().__init__(name)
 
     def deconstruct(self):
-        return (self.__class__.__qualname__, [self.name, self.managers], {})
+        cls = type(self)
+        # Avoid attribute lookup on self.__class__ and __qualname__ for micro-optimization
+        return (cls.__qualname__, [self.name, self.managers], {})
 
     def state_forwards(self, app_label, state):
         state.alter_model_managers(app_label, self.name_lower, self.managers)
