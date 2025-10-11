@@ -80,7 +80,12 @@ class Sitemap:
 
     def get_protocol(self, protocol=None):
         # Determine protocol
-        return self.protocol or protocol or "https"
+        protocol_attr = self.protocol
+        if protocol_attr:
+            return protocol_attr
+        if protocol:
+            return protocol
+        return "https"
 
     def get_domain(self, site=None):
         # Determine domain
