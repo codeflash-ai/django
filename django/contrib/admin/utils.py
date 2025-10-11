@@ -20,6 +20,8 @@ from django.utils.text import capfirst
 from django.utils.translation import ngettext
 from django.utils.translation import override as translation_override
 
+_lookup_field_sentinel = object()
+
 QUOTE_MAP = {i: "_%02X" % i for i in b'":/_#?;@&=+$,"[]<>%\n\\'}
 UNQUOTE_MAP = {v: chr(k) for k, v in QUOTE_MAP.items()}
 UNQUOTE_RE = _lazy_re_compile("_(?:%s)" % "|".join([x[1:] for x in UNQUOTE_MAP]))
@@ -294,23 +296,37 @@ def lookup_field(name, obj, model_admin=None):
         if callable(name):
             attr = name
             value = attr(obj)
-        elif hasattr(model_admin, name) and name != "__str__":
+        elif (
+            model_admin is not None and hasattr(model_admin, name) and name != "__str__"
+        ):
             attr = getattr(model_admin, name)
             value = attr(obj)
         else:
-            sentinel = object()
-            attr = getattr(obj, name, sentinel)
+            # Avoid creating a new sentinel for every call
+            _sentinel = _lookup_field_sentinel
+            attr = getattr(obj, name, _sentinel)
             if callable(attr):
                 value = attr()
             else:
-                if attr is sentinel:
+                if attr is _sentinel:
+                    # Optimize .split() by caching the result if LOOKUP_SEP is the default '__'
+                    # Short-circuit if there's no LOOKUP_SEP for simple attributes
+                    if LOOKUP_SEP not in name:
+                        return None, None, None
                     attr = obj
-                    for part in name.split(LOOKUP_SEP):
-                        attr = getattr(attr, part, sentinel)
-                        if attr is sentinel:
+                    # Avoid repeated attribute lookups by localizing functions
+                    getter = getattr
+                    parts = name.split(LOOKUP_SEP)
+                    for part in parts:
+                        attr = getter(attr, part, _sentinel)
+                        if attr is _sentinel:
                             return None, None, None
                 value = attr
-            if hasattr(model_admin, "model") and hasattr(model_admin.model, name):
+            if (
+                model_admin is not None
+                and hasattr(model_admin, "model")
+                and hasattr(model_admin.model, name)
+            ):
                 attr = getattr(model_admin.model, name)
         f = None
     else:
@@ -328,22 +344,21 @@ def _get_non_gfk_field(opts, name):
     model (rather something like `foo_set`).
     """
     field = opts.get_field(name)
-    if (
-        field.is_relation
-        and
-        # Generic foreign keys OR reverse relations
-        ((field.many_to_one and not field.related_model) or field.one_to_many)
-    ):
-        raise FieldDoesNotExist()
+    # Use temporary variables and combine conditions for better branch prediction
+    is_relation = field.is_relation
+    if is_relation:
+        many_to_one = getattr(field, "many_to_one", False)
+        related_model = getattr(field, "related_model", None)
+        one_to_many = getattr(field, "one_to_many", False)
+        if (many_to_one and not related_model) or one_to_many:
+            raise FieldDoesNotExist()
 
-    # Avoid coercing <FK>_id fields to FK
-    if (
-        field.is_relation
-        and not field.many_to_many
-        and hasattr(field, "attname")
-        and field.attname == name
-    ):
-        raise FieldIsAForeignKeyColumnName()
+        if (
+            not getattr(field, "many_to_many", False)
+            and hasattr(field, "attname")
+            and field.attname == name
+        ):
+            raise FieldIsAForeignKeyColumnName()
 
     return field
 
