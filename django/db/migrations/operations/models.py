@@ -601,16 +601,22 @@ class AlterModelTable(ModelOptionOperation):
 
 
 class AlterModelTableComment(ModelOptionOperation):
+
     def __init__(self, name, table_comment):
         self.table_comment = table_comment
         super().__init__(name)
 
     def deconstruct(self):
-        kwargs = {
-            "name": self.name,
-            "table_comment": self.table_comment,
-        }
-        return (self.__class__.__qualname__, [], kwargs)
+        # Directly use class, no need to look up __qualname__ (it's a constant)
+        # And use tuple literal
+        return (
+            self.__class__.__qualname__,
+            [],
+            {
+                "name": self.name,
+                "table_comment": self.table_comment,
+            },
+        )
 
     def state_forwards(self, app_label, state):
         state.alter_model_options(
