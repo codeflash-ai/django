@@ -785,9 +785,8 @@ class AlterOrderWithRespectTo(ModelOptionOperation):
         )
 
     def describe(self):
-        return "Set order_with_respect_to on %s to %s" % (
-            self.name,
-            self.order_with_respect_to,
+        return (
+            f"Set order_with_respect_to on {self.name} to {self.order_with_respect_to}"
         )
 
     @property
