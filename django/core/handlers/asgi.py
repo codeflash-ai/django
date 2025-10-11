@@ -372,9 +372,11 @@ class ASGIHandler(base.BaseHandler):
         if not data:
             yield data, True
             return
-        while position < len(data):
-            yield (
-                data[position : position + cls.chunk_size],
-                (position + cls.chunk_size) >= len(data),
-            )
-            position += cls.chunk_size
+        # Optimization: Use range() for efficient chunking
+        data_len = len(data)
+        chunk_size = cls.chunk_size
+        # Use range to avoid repeated slicing & position math in loop condition
+        for position in range(0, data_len, chunk_size):
+            end = min(position + chunk_size, data_len)
+            last_chunk = end >= data_len
+            yield (data[position:end], last_chunk)
