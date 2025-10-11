@@ -590,10 +590,12 @@ class AlterModelTable(ModelOptionOperation):
         return self.database_forwards(app_label, schema_editor, from_state, to_state)
 
     def describe(self):
-        return "Rename table for %s to %s" % (
-            self.name,
-            self.table if self.table is not None else "(default)",
-        )
+        # Fast-path string concatenation, avoids unnecessary tuple packing
+        if self.table is not None:
+            table_name = self.table
+        else:
+            table_name = "(default)"
+        return f"Rename table for {self.name} to {table_name}"
 
     @property
     def migration_name_fragment(self):
