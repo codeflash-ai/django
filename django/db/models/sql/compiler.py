@@ -554,11 +554,24 @@ class SQLCompiler:
 
     def get_combinator_sql(self, combinator, all):
         features = self.connection.features
+        query = self.query
+        combined_queries = query.combined_queries
         compilers = [
-            query.get_compiler(self.using, self.connection, self.elide_empty)
-            for query in self.query.combined_queries
+            q.get_compiler(self.using, self.connection, self.elide_empty)
+            for q in combined_queries
         ]
-        if not features.supports_slicing_ordering_in_compound:
+        supports_slicing = features.supports_slicing_ordering_in_compound
+        supports_parentheses = features.supports_parentheses_in_compound
+        set_operators = self.connection.ops.set_operators
+
+        # Optimize repeated attribute lookups within loop
+        subquery = query.subquery
+        is_sliced = query.is_sliced
+        values_select = query.values_select
+        extra_select = query.extra_select
+        annotation_select = query.annotation_select
+
+        if not supports_slicing:
             for compiler in compilers:
                 if compiler.query.is_sliced:
                     raise DatabaseError(
@@ -568,47 +581,44 @@ class SQLCompiler:
                     raise DatabaseError(
                         "ORDER BY not allowed in subqueries of compound statements."
                     )
-        elif self.query.is_sliced and combinator == "union":
+        elif is_sliced and combinator == "union":
             for compiler in compilers:
                 # A sliced union cannot have its parts elided as some of them
                 # might be sliced as well and in the event where only a single
                 # part produces a non-empty resultset it might be impossible to
                 # generate valid SQL.
                 compiler.elide_empty = False
-        parts = ()
+
+        # Use list instead of tuple accumulation for better performance
+        parts = []
         for compiler in compilers:
             try:
                 # If the columns list is limited, then all combined queries
                 # must have the same columns list. Set the selects defined on
                 # the query on all combined queries, if not already set.
-                if not compiler.query.values_select and self.query.values_select:
+                if not compiler.query.values_select and values_select:
                     compiler.query = compiler.query.clone()
                     compiler.query.set_values(
                         (
-                            *self.query.extra_select,
-                            *self.query.values_select,
-                            *self.query.annotation_select,
+                            *extra_select,
+                            *values_select,
+                            *annotation_select,
                         )
                     )
                 part_sql, part_args = compiler.as_sql(with_col_aliases=True)
-                if compiler.query.combinator:
+                c_query = compiler.query
+                if c_query.combinator:
                     # Wrap in a subquery if wrapping in parentheses isn't
                     # supported.
-                    if not features.supports_parentheses_in_compound:
-                        part_sql = "SELECT * FROM ({})".format(part_sql)
+                    if not supports_parentheses:
+                        part_sql = f"SELECT * FROM ({part_sql})"
                     # Add parentheses when combining with compound query if not
                     # already added for all compound queries.
-                    elif (
-                        self.query.subquery
-                        or not features.supports_slicing_ordering_in_compound
-                    ):
-                        part_sql = "({})".format(part_sql)
-                elif (
-                    self.query.subquery
-                    and features.supports_slicing_ordering_in_compound
-                ):
-                    part_sql = "({})".format(part_sql)
-                parts += ((part_sql, part_args),)
+                    elif subquery or not supports_slicing:
+                        part_sql = f"({part_sql})"
+                elif subquery and supports_slicing:
+                    part_sql = f"({part_sql})"
+                parts.append((part_sql, part_args))
             except EmptyResultSet:
                 # Omit the empty queryset with UNION and with DIFFERENCE if the
                 # first queryset is nonempty.
@@ -617,19 +627,26 @@ class SQLCompiler:
                 raise
         if not parts:
             raise EmptyResultSet
-        combinator_sql = self.connection.ops.set_operators[combinator]
+
+        combinator_sql = set_operators[combinator]
+        # str concatenation outside loop for clarity and minor speedup
         if all and combinator == "union":
             combinator_sql += " ALL"
-        braces = "{}"
-        if not self.query.subquery and features.supports_slicing_ordering_in_compound:
+
+        if not subquery and supports_slicing:
             braces = "({})"
-        sql_parts, args_parts = zip(
-            *((braces.format(sql), args) for sql, args in parts)
-        )
+        else:
+            braces = "{}"
+
+        # Avoid unnecessary intermediate tuple expansion, direct list comprehensions
+        sql_parts = [braces.format(sql) for sql, _ in parts]
+        args_parts = [args for _, args in parts]
+
         result = [" {} ".format(combinator_sql).join(sql_parts)]
+        # More efficient parameter combination
         params = []
-        for part in args_parts:
-            params.extend(part)
+        for args in args_parts:
+            params.extend(args)
         return result, params
 
     def get_qualify_sql(self):
