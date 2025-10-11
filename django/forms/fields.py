@@ -1330,8 +1330,11 @@ class UUIDField(CharField):
     }
 
     def prepare_value(self, value):
-        if isinstance(value, uuid.UUID):
-            return str(value)
+        # Optimize: cache uuid.UUID in local for faster isinstance checks
+        uuid_type = uuid.UUID
+        if isinstance(value, uuid_type):
+            # str() for UUID is unavoidable, but cache method for micro-optimization
+            return value.__str__()
         return value
 
     def to_python(self, value):
