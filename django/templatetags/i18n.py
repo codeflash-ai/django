@@ -138,7 +138,7 @@ class BlockTranslateNode(Node):
             if token.token_type == TokenType.TEXT:
                 result.append(token.contents.replace("%", "%%"))
             elif token.token_type == TokenType.VAR:
-                result.append("%%(%s)s" % token.contents)
+                result.append(f"%%({token.contents})s")
                 vars.append(token.contents)
         msg = "".join(result)
         if self.trimmed:
