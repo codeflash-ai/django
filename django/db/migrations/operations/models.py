@@ -1227,8 +1227,9 @@ class RemoveConstraint(IndexOperation):
             schema_editor.add_constraint(model, constraint)
 
     def deconstruct(self):
+        cls = self.__class__
         return (
-            self.__class__.__name__,
+            cls.__name__,
             [],
             {
                 "model_name": self.model_name,
