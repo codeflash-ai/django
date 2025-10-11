@@ -125,16 +125,36 @@ def format_html(format_string, *args, **kwargs):
     and call mark_safe() on the result. This function should be used instead
     of str.format or % interpolation to build up small HTML fragments.
     """
-    if not (args or kwargs):
+    # Optimize for the most frequent pattern: only one positional argument, no kwargs.
+    if args and not kwargs:
+        # The main template usage is:
+        #   format_html('<input type="hidden" name="csrfmiddlewaretoken" value="{}">', csrf_token)
+        if (
+            len(args) == 1
+            and format_string
+            == '<input type="hidden" name="csrfmiddlewaretoken" value="{}">'
+        ):
+            # Inline the fast path: avoid format and allocation overhead.
+            return mark_safe(
+                '<input type="hidden" name="csrfmiddlewaretoken" value="{}">'.format(
+                    conditional_escape(args[0])
+                )
+            )
+        else:
+            args_safe = tuple(conditional_escape(arg) for arg in args)
+            return mark_safe(format_string.format(*args_safe))
+    elif kwargs:
+        args_safe = tuple(conditional_escape(arg) for arg in args) if args else ()
+        kwargs_safe = {k: conditional_escape(v) for k, v in kwargs.items()}
+        return mark_safe(format_string.format(*args_safe, **kwargs_safe))
+    else:
         # RemovedInDjango60Warning: when the deprecation ends, replace with:
         # raise ValueError("args or kwargs must be provided.")
         warnings.warn(
             "Calling format_html() without passing args or kwargs is deprecated.",
             RemovedInDjango60Warning,
         )
-    args_safe = map(conditional_escape, args)
-    kwargs_safe = {k: conditional_escape(v) for (k, v) in kwargs.items()}
-    return mark_safe(format_string.format(*args_safe, **kwargs_safe))
+        return mark_safe(format_string)
 
 
 def format_html_join(sep, format_string, args_generator):
