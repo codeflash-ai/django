@@ -4,6 +4,7 @@ import unicodedata
 from binascii import Error as BinasciiError
 from datetime import datetime, timezone
 from email.utils import formatdate
+from time import time
 from urllib.parse import quote, unquote
 from urllib.parse import urlencode as original_urlencode
 from urllib.parse import urlparse
@@ -91,7 +92,10 @@ def http_date(epoch_seconds=None):
 
     Output a string in the format 'Wdy, DD Mon YYYY HH:MM:SS GMT'.
     """
-    return formatdate(epoch_seconds, usegmt=True)
+    if epoch_seconds is None:
+        epoch_seconds = time()
+    dt = datetime.fromtimestamp(epoch_seconds, timezone.utc)
+    return dt.strftime("%a, %d %b %Y %H:%M:%S GMT")
 
 
 def parse_http_date(date):
