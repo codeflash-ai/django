@@ -162,13 +162,17 @@ class MultiValueDict(dict):
         return self[key]
 
     def setlistdefault(self, key, default_list=None):
-        if key not in self:
+        # Fast-path: get existing, else set and return, in single call.
+        # Avoids an extra lookup after insertion.
+        try:
+            return dict.__getitem__(self, key)
+        except KeyError:
             if default_list is None:
                 default_list = []
-            self.setlist(key, default_list)
+            dict.__setitem__(self, key, default_list)
             # Do not return default_list here because setlist() may store
             # another value -- QueryDict.setlist() does. Look it up.
-        return self._getlist(key)
+            return dict.__getitem__(self, key)
 
     def appendlist(self, key, value):
         """Append an item to the internal list associated with key."""
