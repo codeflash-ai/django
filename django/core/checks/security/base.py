@@ -205,11 +205,19 @@ def check_ssl_redirect(app_configs, **kwargs):
 
 
 def _check_secret_key(secret_key):
-    return (
-        len(set(secret_key)) >= SECRET_KEY_MIN_UNIQUE_CHARACTERS
-        and len(secret_key) >= SECRET_KEY_MIN_LENGTH
-        and not secret_key.startswith(SECRET_KEY_INSECURE_PREFIX)
-    )
+    if len(secret_key) < SECRET_KEY_MIN_LENGTH or secret_key.startswith(
+        SECRET_KEY_INSECURE_PREFIX
+    ):
+        return False
+
+    seen = set()
+    unique_needed = SECRET_KEY_MIN_UNIQUE_CHARACTERS
+    for c in secret_key:
+        if c not in seen:
+            seen.add(c)
+            if len(seen) >= unique_needed:
+                return True
+    return False
 
 
 @register(Tags.security, deploy=True)
