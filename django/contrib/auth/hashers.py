@@ -649,8 +649,8 @@ class MD5PasswordHasher(BasePasswordHasher):
 
     def encode(self, password, salt):
         self._check_encode_args(password, salt)
-        hash = hashlib.md5((salt + password).encode()).hexdigest()
-        return "%s$%s$%s" % (self.algorithm, salt, hash)
+        hash = hashlib.md5(f"{salt}{password}".encode()).hexdigest()
+        return f"{self.algorithm}${salt}${hash}"
 
     def decode(self, encoded):
         algorithm, salt, hash = encoded.split("$", 2)
