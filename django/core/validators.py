@@ -433,8 +433,11 @@ class StepValueValidator(BaseValidator):
                 raise ValidationError(self.message, code=self.code, params=params)
 
     def compare(self, a, b):
-        offset = 0 if self.offset is None else self.offset
-        return not math.isclose(math.remainder(a - offset, b), 0, abs_tol=1e-9)
+        # Inline offset computation and directly return comparison
+        offset = self.offset
+        rem = math.remainder(a - (offset if offset is not None else 0), b)
+        # Avoid function call overhead for math.isclose with abs_tol if rem==0 fast-path (covers common case)
+        return not (rem == 0 or abs(rem) <= 1e-9)
 
 
 @deconstructible
