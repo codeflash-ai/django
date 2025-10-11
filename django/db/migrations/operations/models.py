@@ -113,24 +113,28 @@ class CreateModel(ModelOperation):
 
     def references_model(self, name, app_label):
         name_lower = name.lower()
-        if name_lower == self.name_lower:
+        self_name_lower = self.name_lower  # Cache property for speed-up in tight loops
+        if name_lower == self_name_lower:
             return True
 
-        # Check we didn't inherit from the model
+        # Compute once, then reuse, since reference_model_tuple is needed multiple times
         reference_model_tuple = (app_label, name_lower)
+        model_tuple = (app_label, self_name_lower)
+        Model = models.Model
+        ModelBase = models.base.ModelBase
+
+        # Check we didn't inherit from the model
         for base in self.bases:
             if (
-                base is not models.Model
-                and isinstance(base, (models.base.ModelBase, str))
+                base is not Model
+                and isinstance(base, (ModelBase, str))
                 and resolve_relation(base, app_label) == reference_model_tuple
             ):
                 return True
 
         # Check we have no FKs/M2Ms with it
         for _name, field in self.fields:
-            if field_references(
-                (app_label, self.name_lower), field, reference_model_tuple
-            ):
+            if field_references(model_tuple, field, reference_model_tuple):
                 return True
         return False
 
