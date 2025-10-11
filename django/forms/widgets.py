@@ -328,9 +328,24 @@ class Input(Widget):
         super().__init__(attrs)
 
     def get_context(self, name, value, attrs):
-        context = super().get_context(name, value, attrs)
-        context["widget"]["type"] = self.input_type
-        return context
+        # Inline context creation to minimize super() lookup cost on hot path,
+        # and avoid extra dict modifications
+        is_hidden = self.is_hidden
+        is_required = self.is_required
+        template_name = self.template_name
+        input_type = self.input_type
+        built_attrs = self.build_attrs(self.attrs, attrs)
+        formatted_value = self.format_value(value)
+        widget_context = {
+            "name": name,
+            "is_hidden": is_hidden,
+            "required": is_required,
+            "value": formatted_value,
+            "attrs": built_attrs,
+            "template_name": template_name,
+            "type": input_type,
+        }
+        return {"widget": widget_context}
 
 
 class TextInput(Input):
