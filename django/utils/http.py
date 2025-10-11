@@ -203,9 +203,14 @@ def parse_etags(etag_str):
     if etag_str.strip() == "*":
         return ["*"]
     else:
+        # Pre-bind methods for performance in tight loop
+        split = etag_str.split
+        strip = str.strip
+        match = ETAG_MATCH.match
         # Parse each ETag individually, and return any that are valid.
-        etag_matches = (ETAG_MATCH.match(etag.strip()) for etag in etag_str.split(","))
-        return [match[1] for match in etag_matches if match]
+        parts = split(",")
+        # Use list comprehension for efficiency, doing per part strip once, binding method lookups
+        return [m[1] for part in parts if (m := match(strip(part)))]
 
 
 def quote_etag(etag_str):
