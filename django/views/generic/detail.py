@@ -33,13 +33,6 @@ class SingleObjectMixin(ContextMixin):
         # Next, try looking up by primary key.
         pk = self.kwargs.get(self.pk_url_kwarg)
         slug = self.kwargs.get(self.slug_url_kwarg)
-        if pk is not None:
-            queryset = queryset.filter(pk=pk)
-
-        # Next, try looking up by slug.
-        if slug is not None and (pk is None or self.query_pk_and_slug):
-            slug_field = self.get_slug_field()
-            queryset = queryset.filter(**{slug_field: slug})
 
         # If none of those are defined, it's an error.
         if pk is None and slug is None:
@@ -47,6 +40,14 @@ class SingleObjectMixin(ContextMixin):
                 "Generic detail view %s must be called with either an object "
                 "pk or a slug in the URLconf." % self.__class__.__name__
             )
+
+        if pk is not None:
+            queryset = queryset.filter(pk=pk)
+
+        # Next, try looking up by slug.
+        if slug is not None and (pk is None or self.query_pk_and_slug):
+            slug_field = self.get_slug_field()
+            queryset = queryset.filter(**{slug_field: slug})
 
         try:
             # Get the single item from the filtered queryset
