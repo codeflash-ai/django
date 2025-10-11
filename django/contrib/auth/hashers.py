@@ -19,6 +19,8 @@ from django.utils.crypto import (
 from django.utils.module_loading import import_string
 from django.utils.translation import gettext_noop as _
 
+_LOG2_RANDOM_STRING_CHARS = math.log2(len(RANDOM_STRING_CHARS))
+
 UNUSABLE_PASSWORD_PREFIX = "!"  # This will never be a valid encoded hash
 UNUSABLE_PASSWORD_SUFFIX_LENGTH = (
     40  # number of random chars to add after UNUSABLE_PASSWORD_PREFIX
@@ -192,7 +194,7 @@ def mask_hash(hash, show=6, char="*"):
 
 def must_update_salt(salt, expected_entropy):
     # Each character in the salt provides log_2(len(alphabet)) bits of entropy.
-    return len(salt) * math.log2(len(RANDOM_STRING_CHARS)) < expected_entropy
+    return len(salt) * _LOG2_RANDOM_STRING_CHARS < expected_entropy
 
 
 class BasePasswordHasher:
@@ -347,9 +349,11 @@ class PBKDF2PasswordHasher(BasePasswordHasher):
         }
 
     def must_update(self, encoded):
-        decoded = self.decode(encoded)
-        update_salt = must_update_salt(decoded["salt"], self.salt_entropy)
-        return (decoded["iterations"] != self.iterations) or update_salt
+        algorithm, iterations, salt, hash = encoded.split("$", 3)
+        assert algorithm == self.algorithm
+        iterations = int(iterations)
+        update_salt = must_update_salt(salt, self.salt_entropy)
+        return (iterations != self.iterations) or update_salt
 
     def harden_runtime(self, password, encoded):
         decoded = self.decode(encoded)
