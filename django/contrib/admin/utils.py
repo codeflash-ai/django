@@ -36,24 +36,26 @@ def lookup_spawns_duplicates(opts, lookup_path):
     Return True if the given lookup path spawns duplicates.
     """
     lookup_fields = lookup_path.split(LOOKUP_SEP)
-    # Go through the fields (following all relations) and look for an m2m.
+    get_field = opts.get_field
+    pk_name = opts.pk.name
+
     for field_name in lookup_fields:
         if field_name == "pk":
-            field_name = opts.pk.name
+            field_name = pk_name
         try:
-            field = opts.get_field(field_name)
+            field = get_field(field_name)
         except FieldDoesNotExist:
-            # Ignore query lookups.
             continue
-        else:
-            if hasattr(field, "path_infos"):
-                # This field is a relation; update opts to follow the relation.
-                path_info = field.path_infos
-                opts = path_info[-1].to_opts
-                if any(path.m2m for path in path_info):
-                    # This field is a m2m relation so duplicates must be
-                    # handled.
+        if hasattr(field, "path_infos"):
+            path_info = field.path_infos
+            # Fast path: since we only care about m2m, scan with any on generator
+            for path in path_info:
+                if path.m2m:
                     return True
+            opts = path_info[-1].to_opts
+            # Updating get_field and pk_name for new opts to avoid repeated attribute access
+            get_field = opts.get_field
+            pk_name = opts.pk.name
     return False
 
 
