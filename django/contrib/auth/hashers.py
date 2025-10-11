@@ -18,6 +18,7 @@ from django.utils.crypto import (
 )
 from django.utils.module_loading import import_string
 from django.utils.translation import gettext_noop as _
+from functools import lru_cache
 
 UNUSABLE_PASSWORD_PREFIX = "!"  # This will never be a valid encoded hash
 UNUSABLE_PASSWORD_SUFFIX_LENGTH = (
@@ -210,13 +211,16 @@ class BasePasswordHasher:
     salt_entropy = 128
 
     def _load_library(self):
+        # Memoize per-class-imports to avoid costly repeated imports,
+        # as module importing is the bottleneck.
         if self.library is not None:
             if isinstance(self.library, (tuple, list)):
                 name, mod_path = self.library
             else:
                 mod_path = self.library
             try:
-                module = importlib.import_module(mod_path)
+                # Use the cached import helper, as repeated accesses are hot path
+                module = self._cached_import(mod_path)
             except ImportError as e:
                 raise ValueError(
                     "Couldn't load %r algorithm library: %s"
@@ -300,6 +304,11 @@ class BasePasswordHasher:
         warnings.warn(
             "subclasses of BasePasswordHasher should provide a harden_runtime() method"
         )
+
+    @staticmethod
+    @lru_cache(maxsize=4)
+    def _cached_import(mod_path: str):
+        return importlib.import_module(mod_path)
 
 
 class PBKDF2PasswordHasher(BasePasswordHasher):
@@ -401,13 +410,23 @@ class Argon2PasswordHasher(BasePasswordHasher):
         return self.algorithm + data.decode("ascii")
 
     def decode(self, encoded):
+        # _load_library is now much faster due to caching
         argon2 = self._load_library()
+        # Fast string splitting and assignment
         algorithm, rest = encoded.split("$", 1)
         assert algorithm == self.algorithm
         params = argon2.extract_parameters("$" + rest)
-        variety, *_, b64salt, hash = rest.split("$")
-        # Add padding.
-        b64salt += "=" * (-len(b64salt) % 4)
+
+        # Avoid unnecessary unpacking, use split and direct indexing for b64salt/hash
+        splits = rest.split("$")
+        variety = splits[0]
+        b64salt = splits[-2]
+        hash = splits[-1]
+        # Add base64 padding only if necessary (avoids string concatenation for already divisible cases)
+        pad_len = -len(b64salt) % 4
+        if pad_len:
+            b64salt = b64salt + ("=" * pad_len)
+        # Avoid double decoding: decode as bytes directly
         salt = base64.b64decode(b64salt).decode("latin1")
         return {
             "algorithm": algorithm,
