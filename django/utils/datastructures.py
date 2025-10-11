@@ -118,9 +118,16 @@ class MultiValueDict(dict):
         Return the last data value for the passed key. If key doesn't exist
         or value is an empty list, return `default`.
         """
+        # Instead of relying on __getitem__ (which raises KeyError), use dict.get and inline the __getitem__/[] logic.
+        # This saves the overhead of exception handling on missing keys for fast-paths.
         try:
-            val = self[key]
+            list_ = dict.__getitem__(self, key)
         except KeyError:
+            return default
+        # Avoid repeated __getitem__--just check the last element if list_ is not empty
+        try:
+            val = list_[-1]
+        except IndexError:
             return default
         if val == []:
             return default
