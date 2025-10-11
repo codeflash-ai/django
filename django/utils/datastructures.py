@@ -70,7 +70,11 @@ class MultiValueDict(dict):
     """
 
     def __init__(self, key_to_list_mapping=()):
-        super().__init__(key_to_list_mapping)
+        # Avoid unnecessary super() call if no argument is provided
+        if key_to_list_mapping:
+            super().__init__(key_to_list_mapping)
+        else:
+            super().__init__()
 
     def __repr__(self):
         return "<%s: %s>" % (self.__class__.__name__, super().__repr__())
@@ -133,16 +137,16 @@ class MultiValueDict(dict):
         Used internally to manipulate values list. If force_list is True,
         return a new copy of values.
         """
-        try:
-            values = super().__getitem__(key)
-        except KeyError:
+        # Fast path: check using dict.get to avoid exception cost
+        values = dict.get(self, key, None)
+        if values is None:
             if default is None:
                 return []
             return default
-        else:
-            if force_list:
-                values = list(values) if values is not None else None
-            return values
+        if force_list:
+            # Only make a shallow copy if values is not None and not already distinct
+            return list(values)
+        return values
 
     def getlist(self, key, default=None):
         """
