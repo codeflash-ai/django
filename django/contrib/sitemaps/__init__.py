@@ -27,9 +27,8 @@ class Sitemap:
     x_default = False
 
     def _get(self, name, item, default=None):
-        try:
-            attr = getattr(self, name)
-        except AttributeError:
+        attr = getattr(self, name, None)
+        if attr is None:
             return default
         if callable(attr):
             if self.i18n:
