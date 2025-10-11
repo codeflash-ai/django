@@ -573,8 +573,9 @@ def comment(parser, token):
     """
     Ignore everything between ``{% comment %}`` and ``{% endcomment %}``.
     """
+    node = CommentNode()
     parser.skip_past("endcomment")
-    return CommentNode()
+    return node
 
 
 @register.tag
