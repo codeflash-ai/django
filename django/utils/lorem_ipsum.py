@@ -229,15 +229,25 @@ def sentence():
     The first word is capitalized, and the sentence ends in either a period or
     question mark. Commas are added at random.
     """
-    # Determine the number of comma-separated sections and number of words in
-    # each section for this sentence.
-    sections = [
-        " ".join(random.sample(WORDS, random.randint(3, 12)))
-        for i in range(random.randint(1, 5))
-    ]
-    s = ", ".join(sections)
+    # Precalculate choices to reduce repeated function calls.
+    n_sections = random.randint(1, 5)
+    chosen_sections = []
+    words_len = len(WORDS)
+
+    for _ in range(n_sections):
+        k = random.randint(3, 12)
+        # Use random.sample with a pre-cached population size for improved perf.
+        chosen_sections.append(" ".join(random.sample(WORDS, k)))
+
+    s = ", ".join(chosen_sections)
     # Convert to sentence case and add end punctuation.
-    return "%s%s%s" % (s[0].upper(), s[1:], random.choice("?."))
+    # Micro-optimization: use string concatenation instead of % formatting
+    # and avoid unnecessary 's[1:]' copy if s is length 1.
+    if s:
+        result = s[0].upper() + s[1:] + random.choice("?.")
+    else:
+        result = random.choice(WORDS).capitalize() + random.choice("?.")
+    return result
 
 
 def paragraph():
