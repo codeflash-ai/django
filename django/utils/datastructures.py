@@ -214,7 +214,10 @@ class MultiValueDict(dict):
 
     def dict(self):
         """Return current object as a dict with singular values."""
-        return {key: self[key] for key in self}
+        return {
+            key: (value_list[-1] if value_list else [])
+            for key, value_list in super().items()
+        }
 
 
 class ImmutableList(tuple):
