@@ -557,11 +557,11 @@ class AlterModelTable(ModelOptionOperation):
         super().__init__(name)
 
     def deconstruct(self):
-        kwargs = {
-            "name": self.name,
-            "table": self.table,
-        }
-        return (self.__class__.__qualname__, [], kwargs)
+        return (
+            self.__class__.__qualname__,
+            [],
+            {"name": self.name, "table": self.table},
+        )
 
     def state_forwards(self, app_label, state):
         state.alter_model_options(app_label, self.name_lower, {"db_table": self.table})
