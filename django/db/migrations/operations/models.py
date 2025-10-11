@@ -843,7 +843,7 @@ class AlterModelOptions(ModelOptionOperation):
         pass
 
     def describe(self):
-        return "Change Meta options on %s" % self.name
+        return f"Change Meta options on {self.name}"
 
     @property
     def migration_name_fragment(self):
