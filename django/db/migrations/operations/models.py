@@ -409,7 +409,7 @@ class DeleteModel(ModelOperation):
         return True
 
     def describe(self):
-        return "Delete model %s" % self.name
+        return f"Delete model {self.name}"
 
     @property
     def migration_name_fragment(self):
