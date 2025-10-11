@@ -1048,14 +1048,23 @@ def load_from_library(library, label, names):
     Return a subset of tags and filters from a library.
     """
     subset = Library()
+    tags = library.tags
+    filters = library.filters
+    subset_tags = subset.tags
+    subset_filters = subset.filters
+
+    # Use local vars and membership test optimization.
     for name in names:
+        tag = tags.get(name)
+        filter_ = filters.get(name)
         found = False
-        if name in library.tags:
+
+        if tag is not None:
             found = True
-            subset.tags[name] = library.tags[name]
-        if name in library.filters:
+            subset_tags[name] = tag
+        if filter_ is not None:
             found = True
-            subset.filters[name] = library.filters[name]
+            subset_filters[name] = filter_
         if found is False:
             raise TemplateSyntaxError(
                 "'%s' is not a valid tag or filter in tag library '%s'"
@@ -1085,7 +1094,9 @@ def load(parser, token):
     # token.split_contents() isn't useful here because this tag doesn't accept
     # variable as arguments.
     bits = token.contents.split()
-    if len(bits) >= 4 and bits[-2] == "from":
+    # Use localize len(bits) for speed
+    bits_len = len(bits)
+    if bits_len >= 4 and bits[-2] == "from":
         # from syntax is used; load individual tags from the library
         name = bits[-1]
         lib = find_library(parser, name)
