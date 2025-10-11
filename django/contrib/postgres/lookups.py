@@ -38,7 +38,7 @@ class HasKeys(PostgresOperatorLookup):
     postgres_operator = "?&"
 
     def get_prep_lookup(self):
-        return [str(item) for item in self.rhs]
+        return list(map(str, self.rhs))
 
 
 class HasAnyKeys(HasKeys):
