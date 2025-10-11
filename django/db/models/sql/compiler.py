@@ -515,11 +515,20 @@ class SQLCompiler:
     def get_extra_select(self, order_by, select):
         extra_select = []
         if self.query.distinct and not self.query.distinct_fields:
-            select_sql = [t[1] for t in select]
+            # Optimize select_sql lookup by using a set for O(1) membership test
+            select_sql_set = set([t[1] for t in select])
+            # Cache the search function for performance
+            ordering_search = self.ordering_parts.search
+            # Reduce attribute lookups outside the loop
+            append_extra_select = extra_select.append
+            # Loop variable unpacking outside membership test for clarity
             for expr, (sql, params, is_ref) in order_by:
-                without_ordering = self.ordering_parts.search(sql)[1]
-                if not is_ref and (without_ordering, params) not in select_sql:
-                    extra_select.append((expr, (without_ordering, params), None))
+                # Avoid repeated attribute access and tuple construction in two places
+                # Avoid unnecessary search (if not is_ref, as original)
+                without_ordering = ordering_search(sql)[1]
+                key = (without_ordering, params)
+                if not is_ref and key not in select_sql_set:
+                    append_extra_select((expr, key, None))
         return extra_select
 
     def quote_name_unless_alias(self, name):
