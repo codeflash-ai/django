@@ -14,21 +14,19 @@ class MultiColSource:
     contains_over_clause = False
 
     def __init__(self, alias, targets, sources, field):
-        self.targets, self.sources, self.field, self.alias = (
-            targets,
-            sources,
-            field,
-            alias,
-        )
-        self.output_field = self.field
+        self.targets = targets
+        self.sources = sources
+        self.field = field
+        self.alias = alias
+        self.output_field = field
 
     def __repr__(self):
         return "{}({}, {})".format(self.__class__.__name__, self.alias, self.field)
 
     def relabeled_clone(self, relabels):
-        return self.__class__(
-            relabels.get(self.alias, self.alias), self.targets, self.sources, self.field
-        )
+        # Use locals instead of tuple packing for micro-optimization
+        alias = relabels.get(self.alias, self.alias)
+        return self.__class__(alias, self.targets, self.sources, self.field)
 
     def get_lookup(self, lookup):
         return self.output_field.get_lookup(lookup)
