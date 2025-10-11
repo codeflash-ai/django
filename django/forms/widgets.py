@@ -417,20 +417,19 @@ class FileInput(Input):
     template_name = "django/forms/widgets/file.html"
 
     def __init__(self, attrs=None):
-        if (
-            attrs is not None
-            and not self.allow_multiple_selected
-            and attrs.get("multiple", False)
-        ):
-            raise ValueError(
-                "%s doesn't support uploading multiple files."
-                % self.__class__.__qualname__
-            )
-        if self.allow_multiple_selected:
-            if attrs is None:
-                attrs = {"multiple": True}
-            else:
-                attrs.setdefault("multiple", True)
+        allow_multiple = self.allow_multiple_selected
+        if attrs is not None:
+            multiple = attrs.get("multiple", False)
+            if not allow_multiple and multiple:
+                raise ValueError(
+                    "%s doesn't support uploading multiple files."
+                    % self.__class__.__qualname__
+                )
+            if allow_multiple:
+                attrs = attrs.copy()
+                attrs["multiple"] = True
+        elif allow_multiple:
+            attrs = {"multiple": True}
         super().__init__(attrs)
 
     def format_value(self, value):
@@ -438,14 +437,12 @@ class FileInput(Input):
         return
 
     def value_from_datadict(self, data, files, name):
-        "File widgets take data from FILES, not POST"
-        getter = files.get
+        """File widgets take data from FILES, not POST"""
         if self.allow_multiple_selected:
-            try:
-                getter = files.getlist
-            except AttributeError:
-                pass
-        return getter(name)
+            get_func = getattr(files, "getlist", None)
+            if get_func is not None:
+                return get_func(name)
+        return files.get(name)
 
     def value_omitted_from_data(self, data, files, name):
         return name not in files
