@@ -424,6 +424,8 @@ class RenameModel(ModelOperation):
     def __init__(self, old_name, new_name):
         self.old_name = old_name
         self.new_name = new_name
+        self.old_name_lower = old_name.lower()
+        self.new_name_lower = new_name.lower()
         super().__init__(old_name)
 
     @cached_property
@@ -508,9 +510,8 @@ class RenameModel(ModelOperation):
         self.new_name, self.old_name = self.old_name, self.new_name
 
     def references_model(self, name, app_label):
-        return (
-            name.lower() == self.old_name_lower or name.lower() == self.new_name_lower
-        )
+        name_lower = name.lower()
+        return name_lower == self.old_name_lower or name_lower == self.new_name_lower
 
     def describe(self):
         return "Rename model %s to %s" % (self.old_name, self.new_name)
