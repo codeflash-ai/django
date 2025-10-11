@@ -489,10 +489,11 @@ class NotRelationField(Exception):
 
 
 def get_model_from_relation(field):
-    if hasattr(field, "path_infos"):
-        return field.path_infos[-1].to_opts.model
-    else:
+    try:
+        path_infos = field.path_infos
+    except AttributeError:
         raise NotRelationField
+    return path_infos[-1].to_opts.model
 
 
 def reverse_field_path(model, path):
