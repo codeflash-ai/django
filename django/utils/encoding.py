@@ -7,6 +7,8 @@ from urllib.parse import quote
 
 from django.utils.functional import Promise
 
+_QUOTE_SAFE_CHARS = "/#%[]=:;$&()+,!?*@'~"
+
 
 class DjangoUnicodeDecodeError(UnicodeDecodeError):
     def __str__(self):
@@ -113,7 +115,7 @@ def iri_to_uri(iri):
     the input is assumed to be a string rather than an arbitrary byte stream.
 
     Take an IRI (string or UTF-8 bytes, e.g. '/I ♥ Django/' or
-    b'/I \xe2\x99\xa5 Django/') and return a string containing the encoded
+    b'/I â¥ Django/') and return a string containing the encoded
     result with ASCII chars only (e.g. '/I%20%E2%99%A5%20Django/').
     """
     # The list of safe characters here is constructed from the "reserved" and
@@ -132,7 +134,7 @@ def iri_to_uri(iri):
         return iri
     elif isinstance(iri, Promise):
         iri = str(iri)
-    return quote(iri, safe="/#%[]=:;$&()+,!?*@'~")
+    return quote(iri, safe=_QUOTE_SAFE_CHARS)
 
 
 # List of byte values that uri_to_iri() decodes from percent encoding.
