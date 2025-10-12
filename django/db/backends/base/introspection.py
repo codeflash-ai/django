@@ -45,17 +45,19 @@ class BaseDatabaseIntrospection:
         order between databases.
         """
 
-        def get_names(cursor):
-            return sorted(
-                ti.name
-                for ti in self.get_table_list(cursor)
-                if include_views or ti.type == "t"
-            )
-
         if cursor is None:
             with self.connection.cursor() as cursor:
-                return get_names(cursor)
-        return get_names(cursor)
+                table_list = self.get_table_list(cursor)
+        else:
+            table_list = self.get_table_list(cursor)
+
+        if include_views:
+            names = [ti.name for ti in table_list]
+        else:
+            names = [ti.name for ti in table_list if ti.type == "t"]
+
+        names.sort()
+        return names
 
     def get_table_list(self, cursor):
         """
