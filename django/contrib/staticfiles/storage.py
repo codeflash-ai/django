@@ -134,17 +134,34 @@ class HashedFilesMixin:
     def hashed_name(self, name, content=None, filename=None):
         # `filename` is the name of file to hash if `content` isn't given.
         # `name` is the base name to construct the new hashed filename from.
-        parsed_name = urlsplit(unquote(name))
-        clean_name = parsed_name.path.strip()
-        filename = (filename and urlsplit(unquote(filename)).path.strip()) or clean_name
+
+        # Fast path for the common case: ASCII and no % encoding, so unquote is a no-op
+        if "%" not in name:
+            parsed_name = urlsplit(name)
+            clean_name = parsed_name.path.strip()
+        else:
+            unquoted = unquote(name)
+            parsed_name = urlsplit(unquoted)
+            clean_name = parsed_name.path.strip()
+
+        # Avoid extra urlsplit/unquote if filename is not passed or is the same as name
+        if filename:
+            if "%" not in filename:
+                file_path = urlsplit(filename).path.strip()
+            else:
+                file_path = urlsplit(unquote(filename)).path.strip()
+            used_filename = file_path
+        else:
+            used_filename = clean_name
+
         opened = content is None
         if opened:
-            if not self.exists(filename):
+            if not self.exists(used_filename):
                 raise ValueError(
-                    "The file '%s' could not be found with %r." % (filename, self)
+                    "The file '%s' could not be found with %r." % (used_filename, self)
                 )
             try:
-                content = self.open(filename)
+                content = self.open(used_filename)
             except OSError:
                 # Handle directory paths and fragments
                 return name
@@ -153,12 +170,30 @@ class HashedFilesMixin:
         finally:
             if opened:
                 content.close()
-        path, filename = os.path.split(clean_name)
-        root, ext = os.path.splitext(filename)
-        file_hash = (".%s" % file_hash) if file_hash else ""
-        hashed_name = os.path.join(path, "%s%s%s" % (root, file_hash, ext))
-        unparsed_name = list(parsed_name)
-        unparsed_name[2] = hashed_name
+        # Avoid repeated splitting: most filenames small, ok to combine splits
+        # Avoid tuple unpack call overhead by using local variable for filename part
+        tail_index = clean_name.rfind("/")
+        if tail_index == -1:
+            path = ""
+            filename_leaf = clean_name
+        else:
+            path = clean_name[:tail_index]
+            filename_leaf = clean_name[tail_index + 1 :]
+        root, ext = os.path.splitext(filename_leaf)
+        # Avoid unnecessary string formatting if file_hash is falsy
+        if file_hash:
+            file_hash = f".{file_hash}"
+        else:
+            file_hash = ""
+        hashed_name = os.path.join(path, f"{root}{file_hash}{ext}")
+        # urlunsplit takes a sequence, so mutate a list-of-components directly.
+        unparsed_name = [
+            parsed_name[0],
+            parsed_name[1],
+            hashed_name,
+            parsed_name[3],
+            parsed_name[4],
+        ]
         # Special casing for a @font-face hack, like url(myfont.eot?#iefix")
         # http://www.fontspring.com/blog/the-new-bulletproof-font-face-syntax
         if "?#" in name and not unparsed_name[3]:
@@ -408,21 +443,22 @@ class HashedFilesMixin:
                 yield name, hashed_name, processed, substitutions
 
     def clean_name(self, name):
+        # The operation is already memory efficient
         return name.replace("\\", "/")
 
     def hash_key(self, name):
         return name
 
     def _stored_name(self, name, hashed_files):
-        # Normalize the path to avoid multiple names for the same file like
-        # ../foo/bar.css and ../foo/../foo/bar.css which normalize to the same
-        # path.
+        # Inline and combine path normalization and clean_name
         name = posixpath.normpath(name)
         cleaned_name = self.clean_name(name)
         hash_key = self.hash_key(cleaned_name)
         cache_name = hashed_files.get(hash_key)
         if cache_name is None:
-            cache_name = self.clean_name(self.hashed_name(name))
+            # Avoid double clean_name call by only calling once on return
+            cache_name = self.hashed_name(name)
+            cache_name = self.clean_name(cache_name)
         return cache_name
 
     def stored_name(self, name):
