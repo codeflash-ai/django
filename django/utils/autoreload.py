@@ -226,40 +226,48 @@ def get_child_arguments():
     """
     import __main__
 
-    py_script = Path(sys.argv[0])
+    # Cache frequently used sys attributes locally for speedup
+    sys_argv = sys.argv
+    py_script = Path(sys_argv[0])
     exe_entrypoint = py_script.with_suffix(".exe")
+    sys_executable = sys.executable
+    warnoptions = sys.warnoptions
+    implementation_name = sys.implementation.name
+    xoptions = sys._xoptions
+    # Compose -W and -X options with a single pass for efficiency
+    args = [sys_executable]
+    if warnoptions:
+        args += [f"-W{o}" for o in warnoptions]
+    if implementation_name in ("cpython", "pypy"):
+        # Combine comprehension into an in-place extend for less overhead
+        if xoptions:
+            args.extend(
+                f"-X{key}" if value is True else f"-X{key}={value}"
+                for key, value in xoptions.items()
+            )
+    main_spec = getattr(__main__, "__spec__", None)
 
-    args = [sys.executable] + ["-W%s" % o for o in sys.warnoptions]
-    if sys.implementation.name in ("cpython", "pypy"):
-        args.extend(
-            f"-X{key}" if value is True else f"-X{key}={value}"
-            for key, value in sys._xoptions.items()
-        )
-    # __spec__ is set when the server was started with the `-m` option,
-    # see https://docs.python.org/3/reference/import.html#main-spec
-    # __spec__ may not exist, e.g. when running in a Conda env.
-    if getattr(__main__, "__spec__", None) is not None and not exe_entrypoint.exists():
-        spec = __main__.__spec__
-        if (spec.name == "__main__" or spec.name.endswith(".__main__")) and spec.parent:
+    if main_spec is not None and not exe_entrypoint.exists():
+        spec = main_spec
+        spec_name = spec.name
+        if (spec_name == "__main__" or spec_name.endswith(".__main__")) and getattr(
+            spec, "parent", None
+        ):
             name = spec.parent
         else:
-            name = spec.name
-        args += ["-m", name]
-        args += sys.argv[1:]
+            name = spec_name
+        # __main__.__spec__ is present: use -m parent_module and forward arguments
+        return args + ["-m", name] + sys_argv[1:]
     elif not py_script.exists():
-        # sys.argv[0] may not exist for several reasons on Windows.
-        # It may exist with a .exe extension or have a -script.py suffix.
+        # Try direct exe invocation or fallback script entrypoint
         if exe_entrypoint.exists():
-            # Should be executed directly, ignoring sys.executable.
-            return [exe_entrypoint, *sys.argv[1:]]
-        script_entrypoint = py_script.with_name("%s-script.py" % py_script.name)
+            return [exe_entrypoint, *sys_argv[1:]]
+        script_entrypoint = py_script.with_name(f"{py_script.name}-script.py")
         if script_entrypoint.exists():
-            # Should be executed as usual.
-            return [*args, script_entrypoint, *sys.argv[1:]]
-        raise RuntimeError("Script %s does not exist." % py_script)
+            return args + [script_entrypoint] + sys_argv[1:]
+        raise RuntimeError(f"Script {py_script} does not exist.")
     else:
-        args += sys.argv
-    return args
+        return args + sys_argv
 
 
 def trigger_reload(filename):
@@ -268,10 +276,14 @@ def trigger_reload(filename):
 
 
 def restart_with_reloader():
-    new_environ = {**os.environ, DJANGO_AUTORELOAD_ENV: "true"}
+    # Use os.environ.copy for performance, avoids the cost of unpacking/dict merging
+    new_environ = os.environ.copy()
+    new_environ[DJANGO_AUTORELOAD_ENV] = "true"
     args = get_child_arguments()
+    # Minimize globals lookups by localizing
+    run = subprocess.run
     while True:
-        p = subprocess.run(args, env=new_environ, close_fds=False)
+        p = run(args, env=new_environ, close_fds=False)
         if p.returncode != 3:
             return p.returncode
 
