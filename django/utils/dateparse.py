@@ -74,8 +74,12 @@ def parse_date(value):
         return datetime.date.fromisoformat(value)
     except ValueError:
         if match := date_re.match(value):
-            kw = {k: int(v) for k, v in match.groupdict().items()}
-            return datetime.date(**kw)
+            g = match.group
+            return datetime.date(
+                int(g("year")),
+                int(g("month")),
+                int(g("day")),
+            )
 
 
 def parse_time(value):
