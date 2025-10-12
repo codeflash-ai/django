@@ -1650,26 +1650,33 @@ class ModelMultipleChoiceField(ModelChoiceField):
         return qs
 
     def prepare_value(self, value):
+        # Optimize by using list comprehension with local var assignment for super().prepare_value
+        # and avoid attribute lookups inside the loop.
+        # Also avoid repeated isinstance and hasattr if possible.
         if (
             hasattr(value, "__iter__")
             and not isinstance(value, str)
             and not hasattr(value, "_meta")
         ):
             prepare_value = super().prepare_value
-            return [prepare_value(v) for v in value]
+            # Use generator and list constructor for faster iteration:
+            return list(map(prepare_value, value))
         return super().prepare_value(value)
 
     def has_changed(self, initial, data):
         if self.disabled:
             return False
+        # Defensively normalize initial/data at start.
         if initial is None:
             initial = []
         if data is None:
             data = []
         if len(initial) != len(data):
             return True
-        initial_set = {str(value) for value in self.prepare_value(initial)}
-        data_set = {str(value) for value in data}
+        # Avoid redundant str(value) conversions:
+        prepared_initial = self.prepare_value(initial)
+        initial_set = set(map(str, prepared_initial))
+        data_set = set(map(str, data))
         return data_set != initial_set
 
 
