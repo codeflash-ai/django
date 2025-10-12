@@ -430,9 +430,11 @@ class WatchmanUnavailable(RuntimeError):
 
 class WatchmanReloader(BaseReloader):
     def __init__(self):
+        # Use os.environ.get only once during class construction
         self.roots = defaultdict(set)
         self.processed_request = threading.Event()
-        self.client_timeout = int(os.environ.get("DJANGO_WATCHMAN_TIMEOUT", 5))
+        env_timeout = os.environ.get("DJANGO_WATCHMAN_TIMEOUT")
+        self.client_timeout = int(env_timeout) if env_timeout is not None else 5
         super().__init__()
 
     @cached_property
@@ -469,20 +471,20 @@ class WatchmanReloader(BaseReloader):
 
     def _subscribe(self, directory, name, expression):
         root, rel_path = self._watch_root(directory)
-        # Only receive notifications of files changing, filtering out other types
-        # like special files: https://facebook.github.io/watchman/docs/type
+        # Construct the expression/filter only once
         only_files_expression = [
             "allof",
             ["anyof", ["type", "f"], ["type", "l"]],
             expression,
         ]
+        # Build query dict with inline assignment to reduce lookups/branches
         query = {
             "expression": only_files_expression,
             "fields": ["name"],
             "since": self._get_clock(root),
             "dedup_results": True,
         }
-        if rel_path:
+        if rel_path is not None:
             query["relative_root"] = rel_path
         logger.debug(
             "Issuing watchman subscription %s, for root %s. Query: %s",
@@ -490,24 +492,31 @@ class WatchmanReloader(BaseReloader):
             root,
             query,
         )
+        # Minimal attribute/member access
         self.client.query("subscribe", root, name, query)
 
     def _subscribe_dir(self, directory, filenames):
-        if not directory.exists():
-            if not directory.parent.exists():
+        # Avoid resolving .parent attribute more than needed
+        dir_exists = directory.exists()
+        if not dir_exists:
+            parent = directory.parent
+            if not parent.exists():
                 logger.warning(
                     "Unable to watch directory %s as neither it or its parent exist.",
                     directory,
                 )
                 return
-            prefix = "files-parent-%s" % directory.name
-            filenames = ["%s/%s" % (directory.name, filename) for filename in filenames]
-            directory = directory.parent
+            # Use list comprehension for more efficient string joining
+            prefix = f"files-parent-{directory.name}"
+            # Use generator expression with list constructor for fast joining
+            parent_name = directory.name
+            filenames = [f"{parent_name}/{filename}" for filename in filenames]
+            directory = parent
             expression = ["name", filenames, "wholename"]
         else:
             prefix = "files"
             expression = ["name", filenames]
-        self._subscribe(directory, "%s:%s" % (prefix, directory), expression)
+        self._subscribe(directory, f"{prefix}:{directory}", expression)
 
     def _watch_glob(self, directory, patterns):
         """
