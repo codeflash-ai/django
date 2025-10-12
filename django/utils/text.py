@@ -473,7 +473,29 @@ def camel_case_to_spaces(value):
     """
     Split CamelCase and convert to lowercase. Strip surrounding whitespace.
     """
-    return re_camel_case.sub(r" \1", value).strip().lower()
+    # Manual scan is faster than re.sub for simple camel case splitting.
+    out = []
+    n = len(value)
+    i = 0
+    last = 0
+    while i < n:
+        c = value[i]
+        if (
+            c.isupper()
+            and i > 0
+            and (
+                value[i - 1].islower()  # normal camel: abC
+                or (  # split before A if next isn't upper (CamelAPI -> Camel API)
+                    i + 1 < n and not value[i + 1].isupper()
+                )
+            )
+        ):
+            out.append(value[last:i])
+            last = i
+        i += 1
+    out.append(value[last:])
+    # Filter out empty (leading split), lowercase, join with space, strip
+    return " ".join(part for part in out if part).strip().lower()
 
 
 def _format_lazy(format_string, *args, **kwargs):
