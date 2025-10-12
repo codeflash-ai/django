@@ -299,9 +299,13 @@ class MigrationGraph:
         return "<%s: nodes=%s, edges=%s>" % (self.__class__.__name__, nodes, edges)
 
     def _nodes_and_edges(self):
-        return len(self.nodes), sum(
-            len(node.parents) for node in self.node_map.values()
-        )
+        nodes_len = len(self.nodes)
+        # Localize methods/attributes for minor speed up in tight loop
+        values = self.node_map.values()
+        total_edges = 0
+        for node in values:
+            total_edges += len(node.parents)
+        return nodes_len, total_edges
 
     def _generate_plan(self, nodes, at_end):
         plan = []
