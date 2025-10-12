@@ -305,10 +305,13 @@ class MigrationGraph:
 
     def _generate_plan(self, nodes, at_end):
         plan = []
+        plan_set = set()
+        nodes_set = set(nodes)
         for node in nodes:
             for migration in self.forwards_plan(node):
-                if migration not in plan and (at_end or migration not in nodes):
+                if migration not in plan_set and (at_end or migration not in nodes_set):
                     plan.append(migration)
+                    plan_set.add(migration)
         return plan
 
     def make_state(self, nodes=None, at_end=True, real_apps=None):
