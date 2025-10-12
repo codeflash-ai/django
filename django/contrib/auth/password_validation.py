@@ -16,6 +16,8 @@ from django.utils.module_loading import import_string
 from django.utils.translation import gettext as _
 from django.utils.translation import ngettext
 
+_SPLIT_WORDS_RE = re.compile(r"\W+")
+
 
 @functools.cache
 def get_default_password_validators():
@@ -181,21 +183,29 @@ class UserAttributeSimilarityValidator:
             return
 
         password = password.lower()
+        seq_matcher = SequenceMatcher()
+        seq_matcher.set_seq1(password)  # Reuse the object for all comparisons
+
         for attribute_name in self.user_attributes:
             value = getattr(user, attribute_name, None)
             if not value or not isinstance(value, str):
                 continue
             value_lower = value.lower()
-            value_parts = re.split(r"\W+", value_lower) + [value_lower]
-            for value_part in value_parts:
+            # Only unique parts to avoid redundant comparisons
+            parts = set(_SPLIT_WORDS_RE.split(value_lower))
+            # Add the full value itself (it's always a string)
+            parts.add(value_lower)
+
+            for value_part in parts:
+                # Skip empty segments
+                if not value_part:
+                    continue
                 if exceeds_maximum_length_ratio(
                     password, self.max_similarity, value_part
                 ):
                     continue
-                if (
-                    SequenceMatcher(a=password, b=value_part).quick_ratio()
-                    >= self.max_similarity
-                ):
+                seq_matcher.set_seq2(value_part)
+                if seq_matcher.quick_ratio() >= self.max_similarity:
                     try:
                         verbose_name = str(
                             user._meta.get_field(attribute_name).verbose_name
