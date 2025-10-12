@@ -55,11 +55,15 @@ class AutocompleteJsonView(BaseListView):
 
     def get_queryset(self):
         """Return queryset based on ModelAdmin.get_search_results()."""
-        qs = self.model_admin.get_queryset(self.request)
-        qs = qs.complex_filter(self.source_field.get_limit_choices_to())
-        qs, search_use_distinct = self.model_admin.get_search_results(
-            self.request, qs, self.term
-        )
+        model_admin = self.model_admin
+        request = self.request
+        qs = model_admin.get_queryset(request)
+        limit_choices_to = self.source_field.get_limit_choices_to()
+        if limit_choices_to:
+            qs = qs.complex_filter(limit_choices_to)
+        # Avoid duplicate attribute access and method lookups
+        term = self.term
+        qs, search_use_distinct = model_admin.get_search_results(request, qs, term)
         if search_use_distinct:
             qs = qs.distinct()
         return qs
