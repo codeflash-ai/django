@@ -5,6 +5,7 @@ import weakref
 
 from asgiref.sync import async_to_sync, iscoroutinefunction, sync_to_async
 
+from django.conf import settings
 from django.utils.inspect import func_accepts_kwargs
 
 logger = logging.getLogger("django.dispatch")
@@ -81,10 +82,9 @@ class Signal:
                 a receiver. This will usually be a string, though it may be
                 anything hashable.
         """
-        from django.conf import settings
-
         # If DEBUG is on, check that we got a good receiver
-        if settings.configured and settings.DEBUG:
+        # Do quick boolean check before costly module/static attr lookup
+        if getattr(settings, "configured", False) and getattr(settings, "DEBUG", False):
             if not callable(receiver):
                 raise TypeError("Signal receivers must be callable.")
             # Check for **kwargs
@@ -107,14 +107,28 @@ class Signal:
             if hasattr(receiver, "__self__") and hasattr(receiver, "__func__"):
                 ref = weakref.WeakMethod
                 receiver_object = receiver.__self__
-            receiver = ref(receiver)
-            weakref.finalize(receiver_object, self._remove_receiver)
+            receiver_ref = ref(receiver)
+        else:
+            receiver_ref = receiver
+
+        receiver_added = False
 
         with self.lock:
             self._clear_dead_receivers()
-            if not any(r_key == lookup_key for r_key, _, _ in self.receivers):
-                self.receivers.append((lookup_key, receiver, is_async))
-            self.sender_receivers_cache.clear()
+            # micro-optimization: replace any(...) with loop and break
+            found = False
+            for r_key, _, _ in self.receivers:
+                if r_key == lookup_key:
+                    found = True
+                    break
+            if not found:
+                self.receivers.append((lookup_key, receiver_ref, is_async))
+                receiver_added = True
+                if weak:
+                    # Only register finalize for new weak receiver
+                    weakref.finalize(receiver_object, self._remove_receiver)
+            if receiver_added:
+                self.sender_receivers_cache.clear()
 
     def disconnect(self, receiver=None, sender=None, dispatch_uid=None):
         """
