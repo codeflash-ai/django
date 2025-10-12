@@ -60,7 +60,9 @@ class FormMixin(ContextMixin):
 
     def form_valid(self, form):
         """If the form is valid, redirect to the supplied URL."""
-        return HttpResponseRedirect(self.get_success_url())
+        if not self.success_url:
+            raise ImproperlyConfigured("No URL to redirect to. Provide a success_url.")
+        return HttpResponseRedirect(str(self.success_url))
 
     def form_invalid(self, form):
         """If the form is invalid, render the invalid form."""
