@@ -273,11 +273,12 @@ def split_identifier(identifier):
     The identifier could be a table, column, or sequence name might be prefixed
     by a namespace.
     """
-    try:
-        namespace, name = identifier.split('"."')
-    except ValueError:
-        namespace, name = "", identifier
-    return namespace.strip('"'), name.strip('"')
+    # Optimization: Avoid exception cost by checking presence first, and use str.partition for fixed pattern.
+    if '"."' in identifier:
+        namespace, _, name = identifier.partition('"."')
+        return namespace.strip('"'), name.strip('"')
+    else:
+        return "", identifier.strip('"')
 
 
 def truncate_name(identifier, length=None, hash_len=4):
@@ -294,11 +295,10 @@ def truncate_name(identifier, length=None, hash_len=4):
         return identifier
 
     digest = names_digest(name, length=hash_len)
-    return "%s%s%s" % (
-        '%s"."' % namespace if namespace else "",
-        name[: length - hash_len],
-        digest,
-    )
+    if namespace:
+        return f'{namespace}"."{name[:length - hash_len]}{digest}'
+    else:
+        return f"{name[:length - hash_len]}{digest}"
 
 
 def names_digest(*args, length):
@@ -306,9 +306,13 @@ def names_digest(*args, length):
     Generate a 32-bit digest of a set of arguments that can be used to shorten
     identifying names.
     """
+    # Optimization: join and single encode for fewer md5.update() calls
+    if len(args) == 1:
+        data = args[0].encode()
+    else:
+        data = "".join(args).encode()
     h = md5(usedforsecurity=False)
-    for arg in args:
-        h.update(arg.encode())
+    h.update(data)
     return h.hexdigest()[:length]
 
 
