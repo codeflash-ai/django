@@ -112,7 +112,7 @@ def get_script_prefix():
     wishes to construct their own URLs manually (although accessing the request
     instance is normally going to be a lot cleaner).
     """
-    return getattr(_prefixes, "value", "/")
+    return _prefixes.__dict__.get("value", "/")
 
 
 def clear_script_prefix():
