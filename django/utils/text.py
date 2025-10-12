@@ -28,7 +28,9 @@ def capfirst(x):
         return x
     if not isinstance(x, str):
         x = str(x)
-    return x[0].upper() + x[1:]
+    if x[0].islower():
+        return x[0].upper() + x[1:]
+    return x
 
 
 # Set up regular expressions
