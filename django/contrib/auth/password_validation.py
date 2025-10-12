@@ -151,9 +151,10 @@ def exceeds_maximum_length_ratio(password, max_similarity, value):
     expensive sequence matching.
     """
     pwd_len = len(password)
-    length_bound_similarity = max_similarity / 2 * pwd_len
     value_len = len(value)
-    return pwd_len >= 10 * value_len and value_len < length_bound_similarity
+    if pwd_len < 10 * value_len:
+        return False
+    return (value_len * 2) < (max_similarity * pwd_len)
 
 
 class UserAttributeSimilarityValidator:
