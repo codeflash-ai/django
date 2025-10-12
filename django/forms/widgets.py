@@ -487,7 +487,8 @@ class ClearableFileInput(FileInput):
         """
         Return the file object if it has a defined url attribute.
         """
-        if self.is_initial(value):
+        # Inline is_initial logic to avoid function call overhead
+        if value and hasattr(value, "url") and value.url:
             return value
 
     def get_context(self, name, value, attrs):

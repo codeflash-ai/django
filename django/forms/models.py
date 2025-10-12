@@ -53,36 +53,91 @@ def construct_instance(form, instance, fields=None, exclude=None):
     from django.db import models
 
     opts = instance._meta
-
     cleaned_data = form.cleaned_data
+
+    # Cache type references for tight isinstance() usage
+    AutoFieldType = type(models.AutoField())
+    FileFieldType = type(models.FileField())
+
+    # Build a mapping of field name -> field in advance (avoids repeated lookups)
+    # but only if 'fields' or 'exclude' is used; otherwise, use fields as-is.
     file_field_list = []
+    is_fields_specified = fields is not None
+    is_exclude_specified = bool(exclude)
+
+    # If the number of fields is large and many are possible exclusions, convert to set for O(1) lookup.
+    fields_set = set(fields) if is_fields_specified else None
+    exclude_set = set(exclude) if is_exclude_specified else None
+
+    get_form_field = form.__getitem__
+    cleaned_data_get = cleaned_data.get
+    form_data = form.data
+    form_files = form.files
+    form_add_prefix = form.add_prefix
+
     for f in opts.fields:
-        if (
-            not f.editable
-            or isinstance(f, models.AutoField)
-            or f.name not in cleaned_data
-        ):
+        fname = f.name
+
+        # Fast path via fields_set/exclude_set for O(1) skip.
+        if not f.editable:
             continue
-        if fields is not None and f.name not in fields:
+        ftype = type(f)
+        if ftype is AutoFieldType:
             continue
-        if exclude and f.name in exclude:
+        if fname not in cleaned_data:
             continue
-        # Leave defaults for fields that aren't in POST data, except for
-        # checkbox inputs because they don't appear in POST data if not checked.
-        if (
-            f.has_default()
-            and form[f.name].field.widget.value_omitted_from_data(
-                form.data, form.files, form.add_prefix(f.name)
-            )
-            and cleaned_data.get(f.name) in form[f.name].field.empty_values
-        ):
+        if is_fields_specified and fname not in fields_set:
             continue
+        if is_exclude_specified and fname in exclude_set:
+            continue
+
+        has_default = getattr(f, "has_default", None)
+        # Only call has_default if it exists (in Django, it always does, but safe)
+        if has_default is not None and has_default():
+            # Only call expensive form[] and add_prefix if necessary
+            form_field = None  # lazy
+            if ftype is not FileFieldType:
+                widget = None
+                empty_values = None
+
+                def check_omitted():
+                    nonlocal form_field, widget, empty_values
+                    if form_field is None:
+                        form_field = get_form_field(fname)
+                    if widget is None:
+                        widget = form_field.field.widget
+                    return widget.value_omitted_from_data(
+                        form_data, form_files, form_add_prefix(fname)
+                    )
+
+                def is_in_empty():
+                    nonlocal form_field, empty_values
+                    if form_field is None:
+                        form_field = get_form_field(fname)
+                    if empty_values is None:
+                        empty_values = form_field.field.empty_values
+                    return cleaned_data_get(fname) in empty_values
+
+                # Evaluate guards only if needed
+                if check_omitted() and is_in_empty():
+                    continue
+            else:
+                # For FileField, we still have to check omission, but it's rare.
+                form_field = get_form_field(fname)
+                widget = form_field.field.widget
+                if widget.value_omitted_from_data(
+                    form_data, form_files, form_add_prefix(fname)
+                ):
+                    empty_values = form_field.field.empty_values
+                    if cleaned_data_get(fname) in empty_values:
+                        continue
+
         # Defer saving file-type fields until after the other fields, so a
         # callable upload_to can use the values from other fields.
-        if isinstance(f, models.FileField):
+        if ftype is FileFieldType:
             file_field_list.append(f)
         else:
-            f.save_form_data(instance, cleaned_data[f.name])
+            f.save_form_data(instance, cleaned_data[fname])
 
     for f in file_field_list:
         f.save_form_data(instance, cleaned_data[f.name])
