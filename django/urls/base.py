@@ -19,9 +19,13 @@ _urlconfs = Local()
 
 
 def resolve(path, urlconf=None):
-    if urlconf is None:
+    # If urlconf is not provided, fetch it once and reuse
+    if urlconf is not None:
+        resolver = get_resolver(urlconf)
+    else:
         urlconf = get_urlconf()
-    return get_resolver(urlconf).resolve(path)
+        resolver = get_resolver(urlconf)
+    return resolver.resolve(path)
 
 
 def reverse(viewname, urlconf=None, args=None, kwargs=None, current_app=None):
