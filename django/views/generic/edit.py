@@ -33,8 +33,19 @@ class FormMixin(ContextMixin):
     def get_form(self, form_class=None):
         """Return an instance of the form to be used in this view."""
         if form_class is None:
-            form_class = self.get_form_class()
-        return form_class(**self.get_form_kwargs())
+            form_class = self.form_class
+        if self.request.method in ("POST", "PUT"):
+            return form_class(
+                initial=self.get_initial(),
+                prefix=self.get_prefix(),
+                data=self.request.POST,
+                files=self.request.FILES,
+            )
+        else:
+            return form_class(
+                initial=self.get_initial(),
+                prefix=self.get_prefix(),
+            )
 
     def get_form_kwargs(self):
         """Return the keyword arguments for instantiating the form."""
