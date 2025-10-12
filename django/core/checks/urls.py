@@ -61,17 +61,28 @@ def _load_all_namespaces(resolver, parents=()):
     Recursively load all namespaces from URL patterns.
     """
     url_patterns = getattr(resolver, "url_patterns", [])
-    namespaces = [
-        ":".join(parents + (url.namespace,))
-        for url in url_patterns
-        if getattr(url, "namespace", None) is not None
-    ]
+    # Precompute parents join prefix if parents is non-empty for efficiency
+    # Accumulate results in a list, then return as a single list
+    namespaces = []
+    parents_tuple = parents  # Avoid repeated tuple construction
+
+    # Avoid repeated getattr() by local caching
+    for url in url_patterns:
+        ns = getattr(url, "namespace", None)
+        if ns is not None:
+            namespaces.append(":".join(parents_tuple + (ns,)))
+
     for pattern in url_patterns:
-        namespace = getattr(pattern, "namespace", None)
-        current = parents
-        if namespace is not None:
-            current += (namespace,)
-        namespaces.extend(_load_all_namespaces(pattern, current))
+        ns = getattr(pattern, "namespace", None)
+        if ns is not None:
+            new_parents = parents_tuple + (ns,)
+        else:
+            new_parents = parents_tuple
+        # Only make a recursive call if there is possibility of children, reducing stack usage
+        child_patterns = getattr(pattern, "url_patterns", None)
+        if child_patterns:
+            namespaces.extend(_load_all_namespaces(pattern, new_parents))
+
     return namespaces
 
 
