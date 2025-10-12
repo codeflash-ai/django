@@ -1210,11 +1210,17 @@ def _get_foreign_key(parent_model, model, fk_name=None, can_fail=False):
     from django.db.models import ForeignKey
 
     opts = model._meta
+
+    all_parents = (*parent_model._meta.all_parents, parent_model)
+
     if fk_name:
-        fks_to_parent = [f for f in opts.fields if f.name == fk_name]
-        if len(fks_to_parent) == 1:
-            fk = fks_to_parent[0]
-            all_parents = (*parent_model._meta.all_parents, parent_model)
+        # Use a generator expression with next(...) for better performance than list scan.
+        fk = None
+        for f in opts.fields:
+            if f.name == fk_name:
+                fk = f
+                break
+        if fk is not None:
             if (
                 not isinstance(fk, ForeignKey)
                 or (
@@ -1233,26 +1239,30 @@ def _get_foreign_key(parent_model, model, fk_name=None, can_fail=False):
                     "fk_name '%s' is not a ForeignKey to '%s'."
                     % (fk_name, parent_model._meta.label)
                 )
-        elif not fks_to_parent:
+        else:
             raise ValueError(
                 "'%s' has no field named '%s'." % (model._meta.label, fk_name)
             )
     else:
         # Try to discover what the ForeignKey from model to parent_model is
-        all_parents = (*parent_model._meta.all_parents, parent_model)
-        fks_to_parent = [
-            f
-            for f in opts.fields
-            if isinstance(f, ForeignKey)
-            and (
+        # Use a for-loop to stop at two matches for early exit; saves scanning all fields unnecessarily
+        fks_to_parent = []
+        append = (
+            fks_to_parent.append
+        )  # Local function lookup for faster referencing in tight loop
+        for f in opts.fields:
+            if isinstance(f, ForeignKey) and (
                 f.remote_field.model == parent_model
                 or f.remote_field.model in all_parents
                 or (
                     f.remote_field.model._meta.proxy
                     and f.remote_field.model._meta.proxy_for_model in all_parents
                 )
-            )
-        ]
+            ):
+                append(f)
+                if len(fks_to_parent) > 1:
+                    break
+
         if len(fks_to_parent) == 1:
             fk = fks_to_parent[0]
         elif not fks_to_parent:
