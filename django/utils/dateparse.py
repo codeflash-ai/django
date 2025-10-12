@@ -95,10 +95,14 @@ def parse_time(value):
         return datetime.time.fromisoformat(value).replace(tzinfo=None)
     except ValueError:
         if match := time_re.match(value):
-            kw = match.groupdict()
-            kw["microsecond"] = kw["microsecond"] and kw["microsecond"].ljust(6, "0")
-            kw = {k: int(v) for k, v in kw.items() if v is not None}
-            return datetime.time(**kw)
+            hour, minute, second, microsecond = match.groups()
+            microsecond = microsecond and microsecond.ljust(6, "0")
+            return datetime.time(
+                int(hour),
+                int(minute),
+                int(second) if second is not None else 0,
+                *([] if microsecond is None else [int(microsecond)]),
+            )
 
 
 def parse_datetime(value):
