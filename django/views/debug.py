@@ -97,11 +97,12 @@ def get_exception_reporter_class(request):
 
 def get_caller(request):
     resolver_match = request.resolver_match
-    if resolver_match is None:
-        try:
-            resolver_match = resolve(request.path)
-        except Http404:
-            pass
+    if resolver_match is not None:
+        return resolver_match._func_path
+    try:
+        resolver_match = resolve(request.path)
+    except Http404:
+        return ""
     return "" if resolver_match is None else resolver_match._func_path
 
 
