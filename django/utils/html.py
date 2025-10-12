@@ -5,7 +5,8 @@ import json
 import re
 import warnings
 from html.parser import HTMLParser
-from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit, urlunsplit
+from urllib.parse import (parse_qsl, quote, unquote, urlencode, urlsplit,
+                          urlunsplit)
 
 from django.utils.deprecation import RemovedInDjango60Warning
 from django.utils.encoding import punycode
@@ -39,7 +40,6 @@ VOID_ELEMENTS = frozenset(
 )
 
 
-@keep_lazy(SafeString)
 def escape(text):
     """
     Return the given text with ampersands, quotes and angle brackets encoded
