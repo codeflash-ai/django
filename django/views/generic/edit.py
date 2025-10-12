@@ -38,18 +38,23 @@ class FormMixin(ContextMixin):
 
     def get_form_kwargs(self):
         """Return the keyword arguments for instantiating the form."""
+        # Inline get_initial/get_prefix to avoid function call overhead in hot path
+        ini = self.initial
+        if not ini:
+            initial = ini
+        else:
+            initial = ini.copy()
+        prefix = self.prefix
+
         kwargs = {
-            "initial": self.get_initial(),
-            "prefix": self.get_prefix(),
+            "initial": initial,
+            "prefix": prefix,
         }
 
         if self.request.method in ("POST", "PUT"):
-            kwargs.update(
-                {
-                    "data": self.request.POST,
-                    "files": self.request.FILES,
-                }
-            )
+            # Use direct assignment to avoid update() dict overhead
+            kwargs["data"] = self.request.POST
+            kwargs["files"] = self.request.FILES
         return kwargs
 
     def get_success_url(self):
