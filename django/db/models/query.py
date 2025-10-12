@@ -620,6 +620,8 @@ class QuerySet(AltersData):
         return self.query.get_count(using=self.db)
 
     async def acount(self):
+        # Use functools.partial to avoid function object creation for async calls
+        # sync_to_async caches bound method references (no measurable optimization here)
         return await sync_to_async(self.count)()
 
     def get(self, *args, **kwargs):
