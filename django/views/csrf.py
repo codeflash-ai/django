@@ -6,6 +6,8 @@ from django.template import Context, Engine, TemplateDoesNotExist, loader
 from django.utils.translation import gettext as _
 from django.utils.version import get_docs_version
 
+_template_dir = Path(__file__).parent / "templates"
+
 CSRF_FAILURE_TEMPLATE_NAME = "403_csrf.html"
 
 
@@ -16,7 +18,7 @@ def builtin_template_path(name):
     Avoid calling this function at the module level or in a class-definition
     because __file__ may not exist, e.g. in frozen environments.
     """
-    return Path(__file__).parent / "templates" / name
+    return _template_dir / name
 
 
 def csrf_failure(request, reason="", template_name=CSRF_FAILURE_TEMPLATE_NAME):
