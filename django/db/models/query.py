@@ -401,14 +401,18 @@ class QuerySet(AltersData):
         return iter(self._result_cache)
 
     def __aiter__(self):
-        # Remember, __aiter__ itself is synchronous, it's the thing it returns
-        # that is async!
-        async def generator():
+        # __aiter__ itself is synchronous - it returns an async iterator.
+        # Optimization: use an async generator function directly, avoiding
+        # a closure allocation per call. This is faster because there's no closure capture.
+        # _fetch_all can be awaited once and result cache iterated in place.
+        async def _aiter_gen(self):
             await sync_to_async(self._fetch_all)()
-            for item in self._result_cache:
+            # Access object attributes only once for speedup
+            cache = self._result_cache
+            for item in cache:
                 yield item
 
-        return generator()
+        return _aiter_gen(self)
 
     def __bool__(self):
         self._fetch_all()
