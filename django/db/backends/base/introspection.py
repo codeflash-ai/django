@@ -81,10 +81,17 @@ class BaseDatabaseIntrospection:
         from django.apps import apps
         from django.db import router
 
+        # Since apps.get_app_configs() returns a view, convert to tuple to
+        # avoid repeated list allocations in the generator.
+        app_configs = tuple(apps.get_app_configs())
+        get_migratable = router.get_migratable_models
+        conn_alias = self.connection.alias
+
+        # Avoid repeated attribute lookups with local binding
         return (
             model
-            for app_config in apps.get_app_configs()
-            for model in router.get_migratable_models(app_config, self.connection.alias)
+            for app_config in app_configs
+            for model in get_migratable(app_config, conn_alias)
             if model._meta.can_migrate(self.connection)
         )
 
@@ -131,25 +138,34 @@ class BaseDatabaseIntrospection:
         all apps.
         """
         sequence_list = []
-        with self.connection.cursor() as cursor:
+        connection = self.connection
+        get_sequences = self.get_sequences
+
+        # Store attribute lookups for hot loops
+        with connection.cursor() as cursor:
+            extend = sequence_list.extend
             for model in self.get_migratable_models():
-                if not model._meta.managed:
+                # Hoist attribute lookups outside fast paths
+                meta = model._meta
+                if not meta.managed or meta.swapped:
                     continue
-                if model._meta.swapped:
-                    continue
-                sequence_list.extend(
-                    self.get_sequences(
-                        cursor, model._meta.db_table, model._meta.local_fields
-                    )
-                )
-                for f in model._meta.local_many_to_many:
+                extend(get_sequences(cursor, meta.db_table, meta.local_fields))
+                m2m_fields = meta.local_many_to_many
+                # Use local binding for tight loop
+                f_extend = extend
+                for f in m2m_fields:
                     # If this is an m2m using an intermediate table,
                     # we don't need to reset the sequence.
-                    if f.remote_field.through._meta.auto_created:
-                        sequence = self.get_sequences(cursor, f.m2m_db_table())
-                        sequence_list.extend(
-                            sequence or [{"table": f.m2m_db_table(), "column": None}]
-                        )
+                    through_meta = f.remote_field.through._meta
+                    if through_meta.auto_created:
+                        m2m_table = f.m2m_db_table()
+                        sequence = get_sequences(cursor, m2m_table)
+                        # Avoid double call to f.m2m_db_table()
+                        if sequence:
+                            f_extend(sequence)
+                        else:
+                            # Use pre-constructed dict, avoid extra list construction
+                            f_extend(([{"table": m2m_table, "column": None}],)[0])
         return sequence_list
 
     def get_sequences(self, cursor, table_name, table_fields=()):
