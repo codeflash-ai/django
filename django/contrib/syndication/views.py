@@ -1,3 +1,4 @@
+from functools import lru_cache
 from inspect import getattr_static, unwrap
 
 from django.contrib.sites.shortcuts import get_current_site
@@ -84,17 +85,10 @@ class Feed:
             # Check co_argcount rather than try/excepting the function and
             # catching the TypeError, because something inside the function
             # may raise the TypeError. This technique is more accurate.
-            func = unwrap(attr)
-            try:
-                code = func.__code__
-            except AttributeError:
-                func = unwrap(attr.__call__)
-                code = func.__code__
+            func, code, is_static = self._get_cached_func_info(type(self), attname)
             # If function doesn't have arguments and it is not a static method,
             # it was decorated without using @functools.wraps.
-            if not code.co_argcount and not isinstance(
-                getattr_static(self, func.__name__, None), staticmethod
-            ):
+            if not code.co_argcount and not is_static:
                 raise ImproperlyConfigured(
                     f"Feed method {attname!r} decorated by {func.__name__!r} needs to "
                     f"use @functools.wraps."
@@ -232,3 +226,17 @@ class Feed:
                 **self.item_extra_kwargs(item),
             )
         return feed
+
+    @staticmethod
+    @lru_cache(maxsize=128)
+    def _get_cached_func_info(cls, attname):
+        attr = getattr(cls, attname)
+        func = unwrap(attr)
+        try:
+            code = func.__code__
+        except AttributeError:
+            func = unwrap(attr.__call__)
+            code = func.__code__
+
+        is_static = isinstance(getattr_static(cls, attname, None), staticmethod)
+        return func, code, is_static
