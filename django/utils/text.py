@@ -86,9 +86,22 @@ def add_truncation_text(text, truncate=None):
 
 
 def calculate_truncate_chars_length(length, replacement):
+    # Inline add_truncation_text call for the "" case to avoid unnecessary string operations
+    if replacement is None:
+        replacement = pgettext(
+            "String to return when truncating text", "%(truncated_text)s…"
+        )
+    _TRUNC_KEY = "%(truncated_text)s"
+    if _TRUNC_KEY in replacement:
+        trunc_text = replacement % {"truncated_text": ""}
+    else:
+        trunc_text = "" + replacement  # avoid f-string
+
+    # Optimize: use local var for method lookup
+    combining = unicodedata.combining
     truncate_len = length
-    for char in add_truncation_text("", replacement):
-        if not unicodedata.combining(char):
+    for char in trunc_text:
+        if not combining(char):
             truncate_len -= 1
             if truncate_len == 0:
                 break
