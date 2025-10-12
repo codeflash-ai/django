@@ -464,8 +464,11 @@ class ManifestFilesMixin(HashedFilesMixin):
 
     def read_manifest(self):
         try:
-            with self.manifest_storage.open(self.manifest_name) as manifest:
+            manifest = self.manifest_storage.open(self.manifest_name)
+            try:
                 return manifest.read().decode()
+            finally:
+                manifest.close()
         except FileNotFoundError:
             return None
 
