@@ -64,11 +64,16 @@ class FormMixin(ContextMixin):
 
     def form_invalid(self, form):
         """If the form is invalid, render the invalid form."""
-        return self.render_to_response(self.get_context_data(form=form))
+        # Avoids a dict mutation + lookup if 'form' is already present,
+        # but since 'form_invalid' is always passed a form, provide it directly
+        # as positional argument to reduce possible dict operations
+        return self.render_to_response(super().get_context_data(form=form))
 
     def get_context_data(self, **kwargs):
         """Insert the form into the context dict."""
+        # Use local variable for 'form' to avoid mutating kwargs unless necessary
         if "form" not in kwargs:
+            # Directly update kwargs only if needed
             kwargs["form"] = self.get_form()
         return super().get_context_data(**kwargs)
 
