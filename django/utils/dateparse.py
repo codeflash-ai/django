@@ -6,13 +6,14 @@
 # - The date/datetime/time constructors produce friendlier error messages.
 
 import datetime
+import re
 
 from django.utils.regex_helper import _lazy_re_compile
 from django.utils.timezone import get_fixed_timezone
 
 date_re = _lazy_re_compile(r"(?P<year>\d{4})-(?P<month>\d{1,2})-(?P<day>\d{1,2})$")
 
-time_re = _lazy_re_compile(
+time_re = re.compile(
     r"(?P<hour>\d{1,2}):(?P<minute>\d{1,2})"
     r"(?::(?P<second>\d{1,2})(?:[.,](?P<microsecond>\d{1,6})\d{0,6})?)?$"
 )
@@ -87,18 +88,27 @@ def parse_time(value):
     Return None if the input isn't well formatted, in particular if it
     contains an offset.
     """
+    # Short-circuit for strings that contain time zone indicators
+    # (Prevent unnecessary exception handling in common path)
+    if "+" in value or "-" in value[1:] or value.endswith("Z"):
+        # value[1:] ensures negative hour/minute is not detected as a timezone
+        if match := time_re.match(value):
+            kw = match.groupdict()
+            if kw["microsecond"]:
+                kw["microsecond"] = kw["microsecond"].ljust(6, "0")
+            kw = {k: int(v) for k, v in kw.items() if v is not None}
+            return datetime.time(**kw)
+        return None
     try:
-        # The fromisoformat() method takes time zone info into account and
-        # returns a time with a tzinfo component, if possible. However, there
-        # are no circumstances where aware datetime.time objects make sense, so
-        # remove the time zone offset.
         return datetime.time.fromisoformat(value).replace(tzinfo=None)
     except ValueError:
         if match := time_re.match(value):
             kw = match.groupdict()
-            kw["microsecond"] = kw["microsecond"] and kw["microsecond"].ljust(6, "0")
+            if kw["microsecond"]:
+                kw["microsecond"] = kw["microsecond"].ljust(6, "0")
             kw = {k: int(v) for k, v in kw.items() if v is not None}
             return datetime.time(**kw)
+        return None
 
 
 def parse_datetime(value):
