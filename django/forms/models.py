@@ -1361,11 +1361,12 @@ class InlineForeignKeyField(Field):
         self.parent_instance = parent_instance
         self.pk_field = pk_field
         self.to_field = to_field
-        if self.parent_instance is not None:
-            if self.to_field:
-                kwargs["initial"] = getattr(self.parent_instance, self.to_field)
-            else:
-                kwargs["initial"] = self.parent_instance.pk
+
+        # Avoid repeated attribute access and use local variable for the initial value
+        parent = self.parent_instance
+        to_field = self.to_field
+        if parent is not None:
+            kwargs["initial"] = getattr(parent, to_field) if to_field else parent.pk
         kwargs["required"] = False
         super().__init__(*args, **kwargs)
 
