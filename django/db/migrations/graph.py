@@ -222,19 +222,34 @@ class MigrationGraph:
         visited = []
         visited_set = set()
         stack = [(start, False)]
+        append_stack = stack.append  # local for speed
+        pop_stack = stack.pop  # local for speed
+        add_visited_set = visited_set.add  # local for speed
+        append_visited = visited.append  # local for speed
+
+        # Reduce attribute lookups for .parents and .children, moving sorted to inside condition
         while stack:
-            node, processed = stack.pop()
+            node, processed = pop_stack()
             if node in visited_set:
-                pass
-            elif processed:
-                visited_set.add(node)
-                visited.append(node.key)
+                continue
+            if processed:
+                add_visited_set(node)
+                append_visited(node.key)
             else:
-                stack.append((node, True))
-                stack += [
-                    (n, False)
-                    for n in sorted(node.parents if forwards else node.children)
-                ]
+                append_stack((node, True))
+                # Micro-optimization: Branch outside any list comprehension and avoid redundant lookups
+                # In highly connected graphs, using sort key only if more than 1 element
+                nodes_to_traverse = node.parents if forwards else node.children
+                if len(nodes_to_traverse) > 1:
+                    # Avoid global lookup for sorted
+                    srt = sorted
+                    nodes = srt(nodes_to_traverse)
+                else:
+                    nodes = list(nodes_to_traverse)
+                # Stack order doesn't matter for DFS, so reversal is not needed.
+                # Preallocate list, and append directly by reference (avoiding +=)
+                for n in nodes:
+                    append_stack((n, False))
         return visited
 
     def root_nodes(self, app=None):
