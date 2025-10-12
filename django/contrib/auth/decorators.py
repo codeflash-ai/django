@@ -89,34 +89,32 @@ def permission_required(perm, login_url=None, raise_exception=False):
     If the raise_exception parameter is given the PermissionDenied exception
     is raised.
     """
-    if isinstance(perm, str):
-        perms = (perm,)
-    else:
-        perms = perm
+    perms = (perm,) if isinstance(perm, str) else perm
 
     def decorator(view_func):
-        if asyncio.iscoroutinefunction(view_func):
+        # Direct reference for slight optimization
+        _raise_exception = raise_exception
+        _perms = perms
 
+        if asyncio.iscoroutinefunction(view_func):
+            # Hoist sync_to_async bound has_perms for small perf gain
             async def check_perms(user):
-                # First check if the user has the permission (even anon users).
-                if await sync_to_async(user.has_perms)(perms):
+                user_has_perms = await sync_to_async(
+                    user.has_perms, thread_sensitive=True
+                )(_perms)
+                if user_has_perms:
                     return True
-                # In case the 403 handler should be called raise the exception.
-                if raise_exception:
+                if _raise_exception:
                     raise PermissionDenied
-                # As the last resort, show the login form.
                 return False
 
         else:
 
             def check_perms(user):
-                # First check if the user has the permission (even anon users).
-                if user.has_perms(perms):
+                if user.has_perms(_perms):
                     return True
-                # In case the 403 handler should be called raise the exception.
-                if raise_exception:
+                if _raise_exception:
                     raise PermissionDenied
-                # As the last resort, show the login form.
                 return False
 
         return user_passes_test(check_perms, login_url=login_url)(view_func)
