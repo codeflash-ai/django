@@ -85,9 +85,8 @@ class Feed:
             # catching the TypeError, because something inside the function
             # may raise the TypeError. This technique is more accurate.
             func = unwrap(attr)
-            try:
-                code = func.__code__
-            except AttributeError:
+            code = getattr(func, "__code__", None)
+            if code is None:
                 func = unwrap(attr.__call__)
                 code = func.__code__
             # If function doesn't have arguments and it is not a static method,
