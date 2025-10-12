@@ -124,10 +124,7 @@ class SafeExceptionReporterFilter:
         if key == settings.SESSION_COOKIE_NAME:
             is_sensitive = True
         else:
-            try:
-                is_sensitive = self.hidden_settings.search(key)
-            except TypeError:
-                is_sensitive = False
+            is_sensitive = self.hidden_settings.search(key) is not None
 
         if is_sensitive:
             cleansed = self.cleansed_substitute
@@ -136,7 +133,7 @@ class SafeExceptionReporterFilter:
         elif isinstance(value, list):
             cleansed = [self.cleanse_setting("", v) for v in value]
         elif isinstance(value, tuple):
-            cleansed = tuple([self.cleanse_setting("", v) for v in value])
+            cleansed = tuple(self.cleanse_setting("", v) for v in value)
         else:
             cleansed = value
 
@@ -168,9 +165,12 @@ class SafeExceptionReporterFilter:
         """
         Return a dictionary of request.COOKIES with sensitive values redacted.
         """
-        if not hasattr(request, "COOKIES"):
+        cookies = getattr(request, "COOKIES", None)
+        if cookies is None:
             return {}
-        return {k: self.cleanse_setting(k, v) for k, v in request.COOKIES.items()}
+        if not cookies:
+            return {}
+        return {k: self.cleanse_setting(k, v) for k, v in cookies.items()}
 
     def is_active(self, request):
         """
