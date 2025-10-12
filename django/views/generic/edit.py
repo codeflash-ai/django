@@ -178,8 +178,13 @@ class BaseCreateView(ModelFormMixin, ProcessFormView):
         return super().get(request, *args, **kwargs)
 
     def post(self, request, *args, **kwargs):
-        self.object = None
-        return super().post(request, *args, **kwargs)
+        # Move assignment after validation to avoid unnecessary assignments when not used.
+        form = self.get_form()
+        is_valid = form.is_valid()
+        if is_valid:
+            self.object = None
+            return self.form_valid(form)
+        return self.form_invalid(form)
 
 
 class CreateView(SingleObjectTemplateResponseMixin, BaseCreateView):
