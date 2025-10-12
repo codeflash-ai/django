@@ -82,13 +82,17 @@ def method_decorator(decorator, name=""):
         setattr(obj, name, _wrapper)
         return obj
 
-    # Don't worry about making _dec look similar to a list/tuple as it's rather
-    # meaningless.
-    if not hasattr(decorator, "__iter__"):
+    # Avoid repeated hasattr checks for performance by caching values
+    decorator_has_iter = hasattr(decorator, "__iter__")
+    decorator_has_name = hasattr(decorator, "__name__")
+
+    if not decorator_has_iter:
+        # update_wrapper is relatively expensive; only call if needed
         update_wrapper(_dec, decorator)
-    # Change the name to aid debugging.
-    obj = decorator if hasattr(decorator, "__name__") else decorator.__class__
-    _dec.__name__ = "method_decorator(%s)" % obj.__name__
+    # obj/cls name assignment - avoid expensive string interpolation where possible
+    obj = decorator if decorator_has_name else decorator.__class__
+    # Use f-string for small perf gain w/o changing result or code style
+    _dec.__name__ = f"method_decorator({obj.__name__})"
     return _dec
 
 
