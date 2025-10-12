@@ -481,6 +481,8 @@ def _format_lazy(format_string, *args, **kwargs):
     Apply str.format() on 'format_string' where format_string, args,
     and/or kwargs might be lazy.
     """
+    if not args and not kwargs:
+        return format_string
     return format_string.format(*args, **kwargs)
 
 
