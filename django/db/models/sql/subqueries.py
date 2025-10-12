@@ -84,21 +84,27 @@ class UpdateQuery(Query):
         querysets.
         """
         values_seq = []
+        get_field = self.get_meta().get_field
+        concrete_model = self.get_meta().concrete_model
+        append = values_seq.append
+        add_related_update = self.add_related_update
+
         for name, val in values.items():
-            field = self.get_meta().get_field(name)
+            field = get_field(name)
             direct = (
                 not (field.auto_created and not field.concrete) or not field.concrete
             )
             model = field.model._meta.concrete_model
+            # fast path fail before check for direct
             if not direct or (field.is_relation and field.many_to_many):
                 raise FieldError(
                     "Cannot update model field %r (only non-relations and "
                     "foreign keys permitted)." % field
                 )
-            if model is not self.get_meta().concrete_model:
-                self.add_related_update(model, field, val)
+            if model is not concrete_model:
+                add_related_update(model, field, val)
                 continue
-            values_seq.append((field, model, val))
+            append((field, model, val))
         return self.add_update_fields(values_seq)
 
     def add_update_fields(self, values_seq):
@@ -107,6 +113,7 @@ class UpdateQuery(Query):
         that will be used to generate the UPDATE query. Might be more usefully
         called add_update_targets() to hint at the extra information here.
         """
+        values_append = self.values.append
         for field, model, val in values_seq:
             # Omit generated fields.
             if field.generated:
@@ -114,7 +121,7 @@ class UpdateQuery(Query):
             if hasattr(val, "resolve_expression"):
                 # Resolve expressions here so that annotations are no longer needed
                 val = val.resolve_expression(self, allow_joins=False, for_save=True)
-            self.values.append((field, model, val))
+            values_append((field, model, val))
 
     def add_related_update(self, model, field, value):
         """
@@ -122,7 +129,11 @@ class UpdateQuery(Query):
 
         Update are coalesced so that only one update query per ancestor is run.
         """
-        self.related_updates.setdefault(model, []).append((field, None, value))
+        updates = self.related_updates
+        if model in updates:
+            updates[model].append((field, None, value))
+        else:
+            updates[model] = [(field, None, value)]
 
     def get_related_updates(self):
         """
