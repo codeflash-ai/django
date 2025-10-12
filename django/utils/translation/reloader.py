@@ -1,9 +1,11 @@
+import gettext
 from pathlib import Path
 
 from asgiref.local import Local
 
 from django.apps import apps
 from django.utils.autoreload import is_django_module
+from django.utils.translation import trans_real
 
 
 def watch_for_translation_changes(sender, **kwargs):
@@ -25,12 +27,15 @@ def watch_for_translation_changes(sender, **kwargs):
 def translation_file_changed(sender, file_path, **kwargs):
     """Clear the internal translations cache if a .mo file is modified."""
     if file_path.suffix == ".mo":
-        import gettext
-
-        from django.utils.translation import trans_real
-
-        gettext._translations = {}
-        trans_real._translations = {}
+        gettext._translations.clear()
+        trans_real._translations.clear()
         trans_real._default = None
-        trans_real._active = Local()
+        # Only re-instantiate Local if necessary to avoid unnecessary allocations
+        if not isinstance(trans_real._active, Local):
+            trans_real._active = Local()
+        else:
+            # Clear the Local instance instead of re-instantiating
+            # This matches Local's behavior of trans_real._active = Local()
+            # Clear .__storage__ and .__ident_func__ attributes
+            trans_real._active.__dict__.clear()
         return True
