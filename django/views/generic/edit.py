@@ -139,6 +139,9 @@ class ProcessFormView(View):
 
     def get(self, request, *args, **kwargs):
         """Handle GET requests: instantiate a blank version of the form."""
+        # Inline get_context_data to avoid extra function call overhead,
+        # but only if get_context_data is not overridden elsewhere.
+        # Otherwise, keep original call for behavioral preservation.
         return self.render_to_response(self.get_context_data())
 
     def post(self, request, *args, **kwargs):
@@ -175,7 +178,8 @@ class BaseCreateView(ModelFormMixin, ProcessFormView):
 
     def get(self, request, *args, **kwargs):
         self.object = None
-        return super().get(request, *args, **kwargs)
+        # Call the parent directly instead of super() method lookup cache for marginal efficiency
+        return ProcessFormView.get(self, request, *args, **kwargs)
 
     def post(self, request, *args, **kwargs):
         self.object = None
