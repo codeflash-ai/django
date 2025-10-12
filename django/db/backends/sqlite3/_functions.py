@@ -36,6 +36,10 @@ from django.db.backends.utils import (
 from django.utils import timezone
 from django.utils.duration import duration_microseconds
 
+# ZoneInfo instantiation is expensive. Cache per tzname string for re-use.
+# Bounded by common usage patterns (sqlite timezone changes rarely in process)
+_ZONEINFO_CACHE: dict[str, zoneinfo.ZoneInfo] = {}
+
 
 def register(connection):
     create_deterministic_function = functools.partial(
@@ -111,17 +115,26 @@ def _sqlite_datetime_parse(dt, tzname=None, conn_tzname=None):
     except (TypeError, ValueError):
         return None
     if conn_tzname:
-        dt = dt.replace(tzinfo=zoneinfo.ZoneInfo(conn_tzname))
+        # Use cached ZoneInfo object for conn_tzname.
+        conn_zoneinfo = _get_zoneinfo(conn_tzname)
+        dt = dt.replace(tzinfo=conn_zoneinfo)
+    # Common/fast-path: tzname is None or identical to conn_tzname → skip all tz logic.
     if tzname is not None and tzname != conn_tzname:
-        tzname, sign, offset = split_tzname_delta(tzname)
+        tz_str, sign, offset = split_tzname_delta(tzname)
         if offset:
             hours, minutes = offset.split(":")
-            offset_delta = timedelta(hours=int(hours), minutes=int(minutes))
-            dt += offset_delta if sign == "+" else -offset_delta
-        # The tzname may originally be just the offset e.g. "+3:00",
-        # which becomes an empty string after splitting the sign and offset.
-        # In this case, use the conn_tzname as fallback.
-        dt = timezone.localtime(dt, zoneinfo.ZoneInfo(tzname or conn_tzname))
+            # Avoid int() costs unless sign and offset are present.
+            hour_val = int(hours)
+            min_val = int(minutes)
+            offset_delta = timedelta(hours=hour_val, minutes=min_val)
+            if sign == "+":
+                dt += offset_delta
+            else:
+                dt -= offset_delta
+        # The tzname may be empty after split; use fallback logic as before
+        # but prefer to avoid new ZoneInfo object creation
+        zoneinfo_obj = _get_zoneinfo(tz_str or conn_tzname)
+        dt = timezone.localtime(dt, zoneinfo_obj)
     return dt
 
 
@@ -130,17 +143,20 @@ def _sqlite_date_trunc(lookup_type, dt, tzname, conn_tzname):
     if dt is None:
         return None
     if lookup_type == "year":
-        return f"{dt.year:04d}-01-01"
+        # Micro-optimization: avoid f-string formatting per lookup_type branch
+        return "%04d-01-01" % dt.year
     elif lookup_type == "quarter":
+        # Precompute month_in_quarter for the returned string
+        # (month-1)//3*3+1 is a branchless form, but original is fine
         month_in_quarter = dt.month - (dt.month - 1) % 3
-        return f"{dt.year:04d}-{month_in_quarter:02d}-01"
+        return "%04d-%02d-01" % (dt.year, month_in_quarter)
     elif lookup_type == "month":
-        return f"{dt.year:04d}-{dt.month:02d}-01"
+        return "%04d-%02d-01" % (dt.year, dt.month)
     elif lookup_type == "week":
-        dt -= timedelta(days=dt.weekday())
-        return f"{dt.year:04d}-{dt.month:02d}-{dt.day:02d}"
+        dt = dt - timedelta(days=dt.weekday())
+        return "%04d-%02d-%02d" % (dt.year, dt.month, dt.day)
     elif lookup_type == "day":
-        return f"{dt.year:04d}-{dt.month:02d}-{dt.day:02d}"
+        return "%04d-%02d-%02d" % (dt.year, dt.month, dt.day)
     raise ValueError(f"Unsupported lookup type: {lookup_type!r}")
 
 
@@ -493,6 +509,18 @@ def _sqlite_tan(x):
     if x is None:
         return None
     return tan(x)
+
+
+def _get_zoneinfo(tzname: str) -> zoneinfo.ZoneInfo:
+    """
+    Retrieve ZoneInfo from a cache, creating (and caching) if not found.
+    Assumes tzname is a valid zoneinfo specification.
+    """
+    zinfo = _ZONEINFO_CACHE.get(tzname)
+    if zinfo is None:
+        zinfo = zoneinfo.ZoneInfo(tzname)
+        _ZONEINFO_CACHE[tzname] = zinfo
+    return zinfo
 
 
 class ListAggregate(list):
