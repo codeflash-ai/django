@@ -50,21 +50,29 @@ def wrap(text, width):
     """
 
     def _generator():
-        for line in text.splitlines(True):  # True keeps trailing linebreaks
+        splitlines = text.splitlines(True)  # cache method result
+        for line in splitlines:
+            line_len = len(line)
             max_width = min((line.endswith("\n") and width + 1 or width), width)
-            while len(line) > max_width:
-                space = line[: max_width + 1].rfind(" ") + 1
+            start = 0
+            while (line_len - start) > max_width:
+                # Avoid string slicing until necessary, use rfind directly on slices
+                end = start + max_width + 1
+                space = line.rfind(" ", start, end) + 1
                 if space == 0:
-                    space = line.find(" ") + 1
+                    space = line.find(" ", start) + 1
                     if space == 0:
-                        yield line
-                        line = ""
+                        yield line[start:]
+                        start = line_len
                         break
-                yield "%s\n" % line[: space - 1]
-                line = line[space:]
-                max_width = min((line.endswith("\n") and width + 1 or width), width)
-            if line:
-                yield line
+                yield f"{line[start:space - 1]}\n"
+                start = space
+                # Only need to check for linebreak at the end
+                max_width = min(
+                    (line[line_len - 1] == "\n" and width + 1 or width), width
+                )
+            if start < line_len:
+                yield line[start:]
 
     return "".join(_generator())
 
