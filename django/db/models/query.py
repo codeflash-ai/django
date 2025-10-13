@@ -35,6 +35,7 @@ from django.db.models.utils import (
 from django.utils import timezone
 from django.utils.deprecation import RemovedInDjango60Warning
 from django.utils.functional import cached_property, partition
+import asyncio
 
 # The maximum number of results to fetch in a get() query.
 MAX_GET_RESULTS = 21
@@ -770,24 +771,8 @@ class QuerySet(AltersData):
         autoincrement field (except if features.can_return_rows_from_bulk_insert=True).
         Multi-table models are not supported.
         """
-        # When you bulk insert you don't get the primary keys back (if it's an
-        # autoincrement, except if can_return_rows_from_bulk_insert=True), so
-        # you can't insert into the child tables which references this. There
-        # are two workarounds:
-        # 1) This could be implemented if you didn't have an autoincrement pk
-        # 2) You could do it by doing O(n) normal inserts into the parent
-        #    tables to get the primary keys back and then doing a single bulk
-        #    insert into the childmost table.
-        # We currently set the primary keys on the objects when using
-        # PostgreSQL via the RETURNING ID clause. It should be possible for
-        # Oracle as well, but the semantics for extracting the primary keys is
-        # trickier so it's not done yet.
         if batch_size is not None and batch_size <= 0:
             raise ValueError("Batch size must be a positive integer.")
-        # Check that the parents share the same concrete model with the our
-        # model to detect the inheritance pattern ConcreteGrandParent ->
-        # MultiTableParent -> ProxyChild. Simply checking self.model._meta.proxy
-        # would not identify that case as involving multiple tables.
         for parent in self.model._meta.all_parents:
             if parent._meta.concrete_model is not self.model._meta.concrete_model:
                 raise ValueError("Can't bulk create a multi-table inherited model")
@@ -795,7 +780,6 @@ class QuerySet(AltersData):
             return objs
         opts = self.model._meta
         if unique_fields:
-            # Primary key is allowed in unique_fields.
             unique_fields = [
                 self.model._meta.get_field(opts.pk.name if name == "pk" else name)
                 for name in unique_fields
@@ -863,14 +847,139 @@ class QuerySet(AltersData):
         update_fields=None,
         unique_fields=None,
     ):
-        return await sync_to_async(self.bulk_create)(
-            objs=objs,
-            batch_size=batch_size,
-            ignore_conflicts=ignore_conflicts,
-            update_conflicts=update_conflicts,
-            update_fields=update_fields,
-            unique_fields=unique_fields,
+        # Split the batch into chunks and run each chunk concurrently using asyncio.gather
+        if not objs:
+            return objs
+
+        # Validate arguments and prep parameters up front (to avoid repeated work)
+        if batch_size is not None and batch_size <= 0:
+            raise ValueError("Batch size must be a positive integer.")
+        opts = self.model._meta
+        if unique_fields:
+            unique_fields = [
+                self.model._meta.get_field(opts.pk.name if name == "pk" else name)
+                for name in unique_fields
+            ]
+        if update_fields:
+            update_fields = [self.model._meta.get_field(name) for name in update_fields]
+        on_conflict = self._check_bulk_create_options(
+            ignore_conflicts,
+            update_conflicts,
+            update_fields,
+            unique_fields,
         )
+        self._for_write = True
+        fields = [f for f in opts.concrete_fields if not f.generated]
+        objs = list(objs)
+        self._prepare_for_bulk_create(objs)
+
+        # Partition pk/non-pk - this logic must be precisely as the original
+        objs_with_pk, objs_without_pk = partition(lambda o: o.pk is None, objs)
+
+        # Prepare batching for concurrent execution. We will run each batch in executor for full concurrency.
+        tasks = []
+        # batching for pk objects
+        if objs_with_pk:
+            for i in range(0, len(objs_with_pk), batch_size or len(objs_with_pk)):
+                batch = objs_with_pk[i : i + (batch_size or len(objs_with_pk))]
+                tasks.append(
+                    asyncio.create_task(
+                        sync_to_async(self._batched_insert)(
+                            batch,
+                            fields,
+                            batch_size,
+                            on_conflict,
+                            update_fields,
+                            unique_fields,
+                        )
+                    )
+                )
+
+        # batching for no-pk objects
+        if objs_without_pk:
+            npk_fields = [f for f in fields if not isinstance(f, AutoField)]
+            for i in range(0, len(objs_without_pk), batch_size or len(objs_without_pk)):
+                batch = objs_without_pk[i : i + (batch_size or len(objs_without_pk))]
+                tasks.append(
+                    asyncio.create_task(
+                        sync_to_async(self._batched_insert)(
+                            batch,
+                            npk_fields,
+                            batch_size,
+                            on_conflict,
+                            update_fields,
+                            unique_fields,
+                        )
+                    )
+                )
+
+        # If there are no batches (empty input), short-circuit
+        if not tasks:
+            return objs
+
+        # Await all batched insert tasks concurrently for better performance
+        results = await asyncio.gather(*tasks)
+
+        # Flatten the returned columns back out per original bulk_create order
+        # Unpack the returned_columns from each batch, in insertion order
+        all_returned_columns = []
+        pk_batches = (
+            (len(objs_with_pk) + (batch_size or len(objs_with_pk)) - 1)
+            // (batch_size or len(objs_with_pk))
+            if objs_with_pk
+            else 0
+        )
+        npk_batches = (
+            (len(objs_without_pk) + (batch_size or len(objs_without_pk)) - 1)
+            // (batch_size or len(objs_without_pk))
+            if objs_without_pk
+            else 0
+        )
+
+        # Process pk objects
+        pk_insert_results = results[:pk_batches]
+        pk_batches_indices = [
+            (i, min(i + (batch_size or len(objs_with_pk)), len(objs_with_pk)))
+            for i in range(0, len(objs_with_pk), batch_size or len(objs_with_pk))
+        ]
+        curr = 0
+        for batch_idx, batch_end in pk_batches_indices:
+            batch = objs_with_pk[batch_idx:batch_end]
+            returned_columns = pk_insert_results[curr]
+            for obj_with_pk, results_ in zip(batch, returned_columns):
+                for result, field in zip(results_, opts.db_returning_fields):
+                    if field != opts.pk:
+                        setattr(obj_with_pk, field.attname, result)
+            for obj_with_pk in batch:
+                obj_with_pk._state.adding = False
+                obj_with_pk._state.db = self.db
+            curr += 1
+
+        # Process no-pk objects
+        npk_insert_results = results[pk_batches:]
+        npk_batches_indices = [
+            (i, min(i + (batch_size or len(objs_without_pk)), len(objs_without_pk)))
+            for i in range(0, len(objs_without_pk), batch_size or len(objs_without_pk))
+        ]
+        curr = 0
+        connection = connections[self.db] if objs_without_pk else None
+        for batch_idx, batch_end in npk_batches_indices:
+            batch = objs_without_pk[batch_idx:batch_end]
+            returned_columns = npk_insert_results[curr]
+            if (
+                connection
+                and connection.features.can_return_rows_from_bulk_insert
+                and on_conflict is None
+            ):
+                assert len(returned_columns) == len(batch)
+            for obj_without_pk, results_ in zip(batch, returned_columns):
+                for result, field in zip(results_, opts.db_returning_fields):
+                    setattr(obj_without_pk, field.attname, result)
+                obj_without_pk._state.adding = False
+                obj_without_pk._state.db = self.db
+            curr += 1
+
+        return objs
 
     def bulk_update(self, objs, fields, batch_size=None):
         """
