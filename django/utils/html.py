@@ -389,13 +389,14 @@ class Urlizer:
             # Trim trailing punctuation (after trimming wrapping punctuation,
             # as encoded entities contain ';'). Unescape entities to avoid
             # breaking them by removing ';'.
-            middle_unescaped = html.unescape(middle)
-            stripped = middle_unescaped.rstrip(self.trailing_punctuation_chars)
-            if middle_unescaped != stripped:
-                punctuation_count = len(middle_unescaped) - len(stripped)
-                trail = middle[-punctuation_count:] + trail
-                middle = middle[:-punctuation_count]
-                trimmed_something = True
+            if middle and middle[-1] in self.trailing_punctuation_chars:
+                middle_unescaped = html.unescape(middle)
+                stripped = middle_unescaped.rstrip(self.trailing_punctuation_chars)
+                if middle_unescaped != stripped:
+                    punctuation_count = len(middle_unescaped) - len(stripped)
+                    trail = middle[-punctuation_count:] + trail
+                    middle = middle[:-punctuation_count]
+                    trimmed_something = True
         return lead, middle, trail
 
     @staticmethod
