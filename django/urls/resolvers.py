@@ -160,9 +160,9 @@ class CheckURLMixin:
         """
         Format the URL pattern for display in warning messages.
         """
-        description = "'{}'".format(self)
+        description = f"'{self}'"
         if self.name:
-            description += " [name='{}']".format(self.name)
+            description += f" [name='{self.name}']"
         return description
 
     def _check_pattern_startswith_slash(self):
@@ -223,12 +223,13 @@ class RegexPattern(CheckURLMixin):
         return warnings
 
     def _check_include_trailing_dollar(self):
-        if self._regex.endswith("$") and not self._regex.endswith(r"\$"):
+        _regex = self._regex
+        if _regex.endswith("$") and not _regex.endswith(r"\$"):
             return [
                 Warning(
-                    "Your URL pattern {} uses include with a route ending with a '$'. "
+                    f"Your URL pattern {self.describe()} uses include with a route ending with a '$'. "
                     "Remove the dollar from the route to avoid problems including "
-                    "URLs.".format(self.describe()),
+                    "URLs.",
                     id="urls.W001",
                 )
             ]
