@@ -7,7 +7,6 @@ attributes of the resolved URL match.
 """
 
 import functools
-import inspect
 import re
 import string
 from importlib import import_module
@@ -429,30 +428,30 @@ class URLPattern:
         """
         Check that the pattern name does not contain a colon.
         """
-        if self.pattern.name is not None and ":" in self.pattern.name:
+        name = self.pattern.name
+        # Fast path: avoid function call unless ':' could exist
+        if name and ":" in name:
+            describe = self.pattern.describe()
             warning = Warning(
-                "Your URL pattern {} has a name including a ':'. Remove the colon, to "
-                "avoid ambiguous namespace references.".format(self.pattern.describe()),
+                f"Your URL pattern {describe} has a name including a ':'. Remove the colon, to "
+                "avoid ambiguous namespace references.",
                 id="urls.W003",
             )
             return [warning]
-        else:
-            return []
+        return []
 
     def _check_callback(self):
         from django.views import View
 
         view = self.callback
-        if inspect.isclass(view) and issubclass(view, View):
+        # Fast path: avoid running expensive class and issubclass check unless definitely a class
+        if isinstance(view, type) and issubclass(view, View):
+            pattern_desc = self.pattern.describe()
+            view_name = view.__name__
             return [
                 Error(
-                    "Your URL pattern %s has an invalid view, pass %s.as_view() "
-                    "instead of %s."
-                    % (
-                        self.pattern.describe(),
-                        view.__name__,
-                        view.__name__,
-                    ),
+                    f"Your URL pattern {pattern_desc} has an invalid view, pass {view_name}.as_view() "
+                    f"instead of {view_name}.",
                     id="urls.E009",
                 )
             ]
