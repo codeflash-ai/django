@@ -10,6 +10,7 @@ import functools
 import inspect
 import re
 import string
+from functools import lru_cache
 from importlib import import_module
 from pickle import PicklingError
 from urllib.parse import quote
@@ -147,6 +148,21 @@ class LocaleRegexDescriptor:
         return instance._regex_dict[language_code]
 
     def _compile(self, regex):
+        # Using lru_cache only when the regex is of type str,
+        # to avoid hashing issues with proxies or other types.
+        if isinstance(regex, str):
+            return self._cached_compile(regex)
+        try:
+            return re.compile(regex)
+        except re.error as e:
+            raise ImproperlyConfigured(
+                f'"{regex}" is not a valid regular expression: {e}'
+            ) from e
+
+    # Cache up to 128 recent regex compilations per process.
+    @staticmethod
+    @lru_cache(maxsize=128)
+    def _cached_compile(regex: str):
         try:
             return re.compile(regex)
         except re.error as e:
