@@ -429,10 +429,11 @@ class URLPattern:
         """
         Check that the pattern name does not contain a colon.
         """
-        if self.pattern.name is not None and ":" in self.pattern.name:
+        pattern_name = self.pattern.name
+        if pattern_name is not None and ":" in pattern_name:
             warning = Warning(
-                "Your URL pattern {} has a name including a ':'. Remove the colon, to "
-                "avoid ambiguous namespace references.".format(self.pattern.describe()),
+                f"Your URL pattern {self.pattern.describe()} has a name including a ':'. Remove the colon, to "
+                "avoid ambiguous namespace references.",
                 id="urls.W003",
             )
             return [warning]
