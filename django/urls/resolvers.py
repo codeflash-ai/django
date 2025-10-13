@@ -410,10 +410,11 @@ class LocalePrefixPattern:
 
 
 class URLPattern:
+
     def __init__(self, pattern, callback, default_args=None, name=None):
         self.pattern = pattern
         self.callback = callback  # the view
-        self.default_args = default_args or {}
+        self.default_args = default_args if default_args is not None else {}
         self.name = name
 
     def __repr__(self):
@@ -443,19 +444,22 @@ class URLPattern:
         from django.views import View
 
         view = self.callback
-        if inspect.isclass(view) and issubclass(view, View):
-            return [
-                Error(
+        # Use local variable for issubclass to save attribute lookups
+        if inspect.isclass(view):
+            if issubclass(view, View):
+                view_name = view.__name__
+                # Combine string formatting outside of Error to minimize work
+                pattern_desc = self.pattern.describe()
+                msg = (
                     "Your URL pattern %s has an invalid view, pass %s.as_view() "
-                    "instead of %s."
-                    % (
-                        self.pattern.describe(),
-                        view.__name__,
-                        view.__name__,
-                    ),
-                    id="urls.E009",
+                    "instead of %s." % (pattern_desc, view_name, view_name)
                 )
-            ]
+                return [
+                    Error(
+                        msg,
+                        id="urls.E009",
+                    )
+                ]
         return []
 
     def resolve(self, path):
