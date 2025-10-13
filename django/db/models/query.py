@@ -35,6 +35,7 @@ from django.db.models.utils import (
 from django.utils import timezone
 from django.utils.deprecation import RemovedInDjango60Warning
 from django.utils.functional import cached_property, partition
+import asyncio
 
 # The maximum number of results to fetch in a get() query.
 MAX_GET_RESULTS = 21
@@ -927,11 +928,67 @@ class QuerySet(AltersData):
     bulk_update.alters_data = True
 
     async def abulk_update(self, objs, fields, batch_size=None):
-        return await sync_to_async(self.bulk_update)(
-            objs=objs,
-            fields=fields,
-            batch_size=batch_size,
+        # Optimize by running each batch in parallel with asyncio.gather in a thread pool
+        if batch_size is not None and batch_size <= 0:
+            raise ValueError("Batch size must be a positive integer.")
+        if not fields:
+            raise ValueError("Field names must be given to bulk_update().")
+        objs = tuple(objs)
+        if any(obj.pk is None for obj in objs):
+            raise ValueError("All bulk_update() objects must have a primary key set.")
+        fields_list = [self.model._meta.get_field(name) for name in fields]
+        if any(not f.concrete or f.many_to_many for f in fields_list):
+            raise ValueError("bulk_update() can only be used with concrete fields.")
+        if any(f.primary_key for f in fields_list):
+            raise ValueError("bulk_update() cannot be used with primary key fields.")
+        if not objs:
+            return 0
+        for obj in objs:
+            obj._prepare_related_fields_for_save(
+                operation_name="bulk_update", fields=fields_list
+            )
+        self._for_write = True
+        connection = connections[self.db]
+        max_batch_size = connection.ops.bulk_batch_size(
+            ["pk", "pk"] + fields_list, objs
         )
+        batch_size = min(batch_size, max_batch_size) if batch_size else max_batch_size
+        requires_casting = connection.features.requires_casted_case_in_updates
+
+        async def process_batch(batch_objs):
+            update_kwargs = {}
+            for field in fields_list:
+                when_statements = []
+                for obj in batch_objs:
+                    attr = getattr(obj, field.attname)
+                    if not hasattr(attr, "resolve_expression"):
+                        attr = Value(attr, output_field=field)
+                    when_statements.append(When(pk=obj.pk, then=attr))
+                case_statement = Case(*when_statements, output_field=field)
+                if requires_casting:
+                    case_statement = Cast(case_statement, output_field=field)
+                update_kwargs[field.attname] = case_statement
+            pks = [obj.pk for obj in batch_objs]
+            queryset = self.using(self.db)
+            # run ORM update in sync thread
+            return await sync_to_async(
+                queryset.filter(pk__in=pks).update, thread_sensitive=True
+            )(**update_kwargs)
+
+        # Split batches eagerly for concurrency
+        batches = [objs[i : i + batch_size] for i in range(0, len(objs), batch_size)]
+
+        # Nest the DB update in a transaction.atomic block for all batches
+        rows_updated = 0
+        async with sync_to_async(transaction.atomic, thread_sensitive=True)(
+            using=self.db, savepoint=False
+        ):
+            # Run all batches in parallel
+            results = await asyncio.gather(
+                *(process_batch(batch_objs) for batch_objs in batches)
+            )
+            rows_updated = sum(results)
+        return rows_updated
 
     abulk_update.alters_data = True
 
