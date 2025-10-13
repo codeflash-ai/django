@@ -327,32 +327,27 @@ def build_instance(Model, data, db):
 
 def deserialize_m2m_values(field, field_value, using, handle_forward_references):
     model = field.remote_field.model
+    pk_to_python = model._meta.pk.to_python
     if hasattr(model._default_manager, "get_by_natural_key"):
+        db_manager_func = model._default_manager.db_manager(using).get_by_natural_key
 
         def m2m_convert(value):
             if hasattr(value, "__iter__") and not isinstance(value, str):
-                return (
-                    model._default_manager.db_manager(using)
-                    .get_by_natural_key(*value)
-                    .pk
-                )
+                return db_manager_func(*value).pk
             else:
-                return model._meta.pk.to_python(value)
+                return pk_to_python(value)
 
     else:
 
         def m2m_convert(v):
-            return model._meta.pk.to_python(v)
+            return pk_to_python(v)
 
     try:
         pks_iter = iter(field_value)
     except TypeError as e:
         raise M2MDeserializationError(e, field_value)
     try:
-        values = []
-        for pk in pks_iter:
-            values.append(m2m_convert(pk))
-        return values
+        return [m2m_convert(pk) for pk in pks_iter]
     except Exception as e:
         if isinstance(e, ObjectDoesNotExist) and handle_forward_references:
             return DEFER_FIELD
