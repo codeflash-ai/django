@@ -35,6 +35,7 @@ from django.db.models.utils import (
 from django.utils import timezone
 from django.utils.deprecation import RemovedInDjango60Warning
 from django.utils.functional import cached_property, partition
+import asyncio
 
 # The maximum number of results to fetch in a get() query.
 MAX_GET_RESULTS = 21
@@ -1085,7 +1086,8 @@ class QuerySet(AltersData):
         return self.reverse()._earliest(*fields)
 
     async def alatest(self, *fields):
-        return await sync_to_async(self.latest)(*fields)
+        # Use asyncio.to_thread to avoid blocking the event loop, since self.latest can be DB or CPU bound
+        return await asyncio.to_thread(self.latest, *fields)
 
     def first(self):
         """Return the first object of a query or None if no match is found."""
