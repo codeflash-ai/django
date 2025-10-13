@@ -1,3 +1,4 @@
+from functools import lru_cache
 from urllib.parse import quote, urljoin
 
 from django import template
@@ -39,6 +40,7 @@ class PrefixNode(template.Node):
         return cls(varname, name)
 
     @classmethod
+    @lru_cache(maxsize=128)
     def handle_simple(cls, name):
         try:
             from django.conf import settings
