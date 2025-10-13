@@ -7,6 +7,16 @@ from urllib.parse import quote
 
 from django.utils.functional import Promise
 
+_PROTECTED_TYPE_SET = {
+    NoneType,
+    int,
+    float,
+    Decimal,
+    datetime.datetime,
+    datetime.date,
+    datetime.time,
+}
+
 
 class DjangoUnicodeDecodeError(UnicodeDecodeError):
     def __str__(self):
@@ -47,7 +57,7 @@ def is_protected_type(obj):
     Objects of protected types are preserved as-is when passed to
     force_str(strings_only=True).
     """
-    return isinstance(obj, _PROTECTED_TYPES)
+    return type(obj) in _PROTECTED_TYPE_SET
 
 
 def force_str(s, encoding="utf-8", strings_only=False, errors="strict"):
