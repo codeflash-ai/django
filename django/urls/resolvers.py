@@ -160,9 +160,10 @@ class CheckURLMixin:
         """
         Format the URL pattern for display in warning messages.
         """
-        description = "'{}'".format(self)
+        # Use f-string formatting for better performance than .format
+        description = f"'{self}'"
         if self.name:
-            description += " [name='{}']".format(self.name)
+            description += f" [name='{self.name}']"
         return description
 
     def _check_pattern_startswith_slash(self):
@@ -353,22 +354,30 @@ class RoutePattern(CheckURLMixin):
         return warnings
 
     def _check_pattern_unmatched_angle_brackets(self):
+        # Use a compiled regex for repeated findall calls
+        brackets_pattern = re.compile(r"[<>]")
         warnings = []
         msg = "Your URL pattern %s has an unmatched '%s' bracket."
-        brackets = re.findall(r"[<>]", str(self._route))
+        brackets = brackets_pattern.findall(str(self._route))
+
+        # Replace branching in the main loop with a more compact logic and avoid conditional resets if possible
         open_bracket_counter = 0
+        # To reduce repeated .describe() calls, extract lazily only if needed
+        description = None
         for bracket in brackets:
             if bracket == "<":
                 open_bracket_counter += 1
-            elif bracket == ">":
+            else:  # bracket == ">"
                 open_bracket_counter -= 1
                 if open_bracket_counter < 0:
-                    warnings.append(
-                        Warning(msg % (self.describe(), ">"), id="urls.W010")
-                    )
+                    if description is None:
+                        description = self.describe()
+                    warnings.append(Warning(msg % (description, ">"), id="urls.W010"))
                     open_bracket_counter = 0
         if open_bracket_counter > 0:
-            warnings.append(Warning(msg % (self.describe(), "<"), id="urls.W010"))
+            if description is None:
+                description = self.describe()
+            warnings.append(Warning(msg % (description, "<"), id="urls.W010"))
         return warnings
 
     def __str__(self):
