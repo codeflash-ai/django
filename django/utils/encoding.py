@@ -2,6 +2,7 @@ import codecs
 import datetime
 import locale
 from decimal import Decimal
+from functools import lru_cache
 from types import NoneType
 from urllib.parse import quote
 
@@ -104,6 +105,7 @@ def force_bytes(s, encoding="utf-8", strings_only=False, errors="strict"):
     return str(s).encode(encoding, errors)
 
 
+@lru_cache(maxsize=128)
 def iri_to_uri(iri):
     """
     Convert an Internationalized Resource Identifier (IRI) portion to a URI
@@ -113,7 +115,7 @@ def iri_to_uri(iri):
     the input is assumed to be a string rather than an arbitrary byte stream.
 
     Take an IRI (string or UTF-8 bytes, e.g. '/I ♥ Django/' or
-    b'/I \xe2\x99\xa5 Django/') and return a string containing the encoded
+    b'/I â¥ Django/') and return a string containing the encoded
     result with ASCII chars only (e.g. '/I%20%E2%99%A5%20Django/').
     """
     # The list of safe characters here is constructed from the "reserved" and
