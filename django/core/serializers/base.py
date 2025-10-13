@@ -56,16 +56,20 @@ class ProgressBar:
     def update(self, count):
         if not self.output:
             return
-        perc = count * 100 // self.total_count
-        done = perc * self.progress_width // 100
+        total_count = self.total_count
+        progress_width = self.progress_width
+        # Inline calculation to avoid intermediate variable allocation
+        done = (count * progress_width) // total_count
         if self.prev_done >= done:
             return
         self.prev_done = done
-        cr = "" if self.total_count == 1 else "\r"
-        self.output.write(
-            cr + "[" + "." * done + " " * (self.progress_width - done) + "]"
-        )
-        if done == self.progress_width:
+        cr = "" if total_count == 1 else "\r"
+        # Precompute parts to minimize string concatenation overhead
+        dot_part = "." * done
+        space_part = " " * (progress_width - done)
+        bar = f"{cr}[{dot_part}{space_part}]"
+        self.output.write(bar)
+        if done == progress_width:
             self.output.write("\n")
         self.output.flush()
 
