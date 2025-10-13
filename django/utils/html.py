@@ -5,7 +5,8 @@ import json
 import re
 import warnings
 from html.parser import HTMLParser
-from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit, urlunsplit
+from urllib.parse import (parse_qsl, quote, unquote, urlencode, urlsplit,
+                          urlunsplit)
 
 from django.utils.deprecation import RemovedInDjango60Warning
 from django.utils.encoding import punycode
@@ -113,10 +114,10 @@ def conditional_escape(text):
     """
     if isinstance(text, Promise):
         text = str(text)
-    if hasattr(text, "__html__"):
-        return text.__html__()
-    else:
-        return escape(text)
+    html_method = getattr(text, "__html__", None)
+    if html_method is not None:
+        return html_method()
+    return escape(text)
 
 
 def format_html(format_string, *args, **kwargs):

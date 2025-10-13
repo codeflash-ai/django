@@ -113,12 +113,15 @@ class StaticNode(template.Node):
         return self.handle_simple(path)
 
     def render(self, context):
-        url = self.url(context)
-        if context.autoescape:
-            url = conditional_escape(url)
-        if self.varname is None:
-            return url
-        context[self.varname] = url
+        # cache direct references for local lookup speedup
+        autoescape = context.autoescape
+        varname = self.varname
+        url_str = self.url(context)
+        if autoescape:
+            url_str = conditional_escape(url_str)
+        if varname is None:
+            return url_str
+        context[varname] = url_str
         return ""
 
     @classmethod
