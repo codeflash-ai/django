@@ -360,7 +360,10 @@ class Urlizer:
     def trim_url(self, x, *, limit):
         if limit is None or len(x) <= limit:
             return x
-        return "%s…" % x[: max(0, limit - 1)]
+        cutoff = limit - 1
+        if cutoff <= 0:
+            return "…"
+        return f"{x[:cutoff]}…"
 
     def trim_punctuation(self, word):
         """
