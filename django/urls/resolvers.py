@@ -460,19 +460,30 @@ class URLPattern:
 
     def resolve(self, path):
         match = self.pattern.match(path)
-        if match:
-            new_path, args, captured_kwargs = match
-            # Pass any default args as **kwargs.
-            kwargs = {**captured_kwargs, **self.default_args}
-            return ResolverMatch(
-                self.callback,
-                args,
-                kwargs,
-                self.pattern.name,
-                route=str(self.pattern),
-                captured_kwargs=captured_kwargs,
-                extra_kwargs=self.default_args,
-            )
+        if not match:
+            return
+        new_path, args, captured_kwargs = match
+        # Avoid dict unpack to improve performance when both are empty or non-overlapping
+        if not self.default_args:
+            kwargs = captured_kwargs
+        elif not captured_kwargs:
+            kwargs = self.default_args
+        else:
+            # For small dicts, manual copying is faster than dict unpacking
+            kwargs = captured_kwargs.copy()
+            kwargs.update(self.default_args)
+        # Cache str(self.pattern) for potentially expensive conversion
+        # This reduces multiple str() calls on self.pattern by ResolverMatch
+        route = str(self.pattern)
+        return ResolverMatch(
+            self.callback,
+            args,
+            kwargs,
+            self.pattern.name,
+            route=route,
+            captured_kwargs=captured_kwargs,
+            extra_kwargs=self.default_args,
+        )
 
     @cached_property
     def lookup_str(self):
