@@ -31,10 +31,7 @@ class DeserializationError(Exception):
         Factory method for creating a deserialization error which has a more
         explanatory message.
         """
-        return cls(
-            "%s: (%s:pk=%s) field_value was '%s'"
-            % (original_exc, model, fk, field_value)
-        )
+        return cls(f"{original_exc}: ({model}:pk={fk}) field_value was '{field_value}'")
 
 
 class M2MDeserializationError(Exception):
