@@ -16,7 +16,6 @@ An example: i18n middleware would need to distinguish caches by the
 """
 
 import time
-from collections import defaultdict
 from hashlib import md5
 
 from django.conf import settings
@@ -44,25 +43,29 @@ def patch_cache_control(response, **kwargs):
       str() to it.
     """
 
-    def dictitem(s):
-        t = s.split("=", 1)
-        if len(t) > 1:
-            return (t[0].lower(), t[1])
+    def dictvalue(directive, value):
+        if value is True:
+            return directive
         else:
-            return (t[0].lower(), True)
+            return "%s=%s" % (directive, value)
 
-    def dictvalue(*t):
-        if t[1] is True:
-            return t[0]
-        else:
-            return "%s=%s" % (t[0], t[1])
-
-    cc = defaultdict(set)
-    if response.get("Cache-Control"):
-        for field in cc_delim_re.split(response.headers["Cache-Control"]):
-            directive, value = dictitem(field)
+    cc = {}
+    existing_cc = response.headers.get("Cache-Control")
+    if existing_cc:
+        # Use split and parse once with builtin
+        for field in cc_delim_re.split(existing_cc):
+            if not field:
+                continue
+            if "=" in field:
+                directive, value = field.split("=", 1)
+                directive = directive.lower()
+                value = value
+            else:
+                directive = field.lower()
+                value = True
             if directive == "no-cache":
-                # no-cache supports multiple field names.
+                if directive not in cc:
+                    cc[directive] = set()
                 cc[directive].add(value)
             else:
                 cc[directive] = value
@@ -82,22 +85,24 @@ def patch_cache_control(response, **kwargs):
     for k, v in kwargs.items():
         directive = k.replace("_", "-")
         if directive == "no-cache":
-            # no-cache supports multiple field names.
+            if directive not in cc:
+                cc[directive] = set()
             cc[directive].add(v)
         else:
             cc[directive] = v
 
+    # Use generator expressions for efficiency
     directives = []
-    for directive, values in cc.items():
-        if isinstance(values, set):
-            if True in values:
+    for directive, value in cc.items():
+        if isinstance(value, set):
+            if True in value:
                 # True takes precedence.
-                values = {True}
-            directives.extend([dictvalue(directive, value) for value in values])
+                directives.append(directive)
+            else:
+                directives.extend(f"{directive}={v}" for v in value)
         else:
-            directives.append(dictvalue(directive, values))
-    cc = ", ".join(directives)
-    response.headers["Cache-Control"] = cc
+            directives.append(dictvalue(directive, value))
+    response.headers["Cache-Control"] = ", ".join(directives)
 
 
 def get_max_age(response):
