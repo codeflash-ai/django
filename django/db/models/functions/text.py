@@ -7,10 +7,12 @@ from django.db.models.lookups import Transform
 
 class MySQLSHA2Mixin:
     def as_mysql(self, compiler, connection, **extra_context):
+        func_suffix = self.function[3:]
+        template = f"SHA2(%(expressions)s, {func_suffix})"
         return super().as_sql(
             compiler,
             connection,
-            template="SHA2(%%(expressions)s, %s)" % self.function[3:],
+            template=template,
             **extra_context,
         )
 
