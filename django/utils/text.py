@@ -10,15 +10,13 @@ from html.parser import HTMLParser
 from io import BytesIO
 
 from django.core.exceptions import SuspiciousFileOperation
-from django.utils.functional import (
-    SimpleLazyObject,
-    cached_property,
-    keep_lazy_text,
-    lazy,
-)
+from django.utils.functional import (SimpleLazyObject, cached_property,
+                                     keep_lazy_text, lazy)
 from django.utils.regex_helper import _lazy_re_compile
 from django.utils.translation import gettext as _
 from django.utils.translation import gettext_lazy, pgettext
+
+_valid_filename_pattern = re.compile(r"(?u)[^-\w.]", re.UNICODE)
 
 
 @keep_lazy_text
@@ -276,7 +274,7 @@ def get_valid_filename(name):
     'johns_portrait_in_2004.jpg'
     """
     s = str(name).strip().replace(" ", "_")
-    s = re.sub(r"(?u)[^-\w.]", "", s)
+    s = _valid_filename_pattern.sub("", s)
     if s in {"", ".", ".."}:
         raise SuspiciousFileOperation("Could not derive file name from '%s'" % name)
     return s
