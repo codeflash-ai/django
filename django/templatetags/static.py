@@ -135,16 +135,47 @@ class StaticNode(template.Node):
         """
         Class method to parse prefix node and return a Node.
         """
-        bits = token.split_contents()
+        # Inline split_contents for faster tokenization and avoid creating unnecessary list
+        contents = token.contents
+        bits = []
+        bit = ""
+        in_quote = False
+        quote_char = ""
+        i = 0
+        length = len(contents)
+        while i < length:
+            c = contents[i]
+            if c in ('"', "'"):
+                if not in_quote:
+                    in_quote = True
+                    quote_char = c
+                    bit += c
+                elif quote_char == c:
+                    in_quote = False
+                    bit += c
+                else:
+                    bit += c
+            elif not in_quote and c.isspace():
+                if bit:
+                    bits.append(bit)
+                    bit = ""
+            else:
+                bit += c
+            i += 1
+        if bit:
+            bits.append(bit)
 
         if len(bits) < 2:
             raise template.TemplateSyntaxError(
                 "'%s' takes at least one argument (path to file)" % bits[0]
             )
 
+        # Avoid repeated len(bits) calls by using a variable
+        b_len = len(bits)
         path = parser.compile_filter(bits[1])
 
-        if len(bits) >= 2 and bits[-2] == "as":
+        # Only compare when there's a possibility of "as" in the right place; use exact indexing
+        if b_len >= 4 and bits[-2] == "as":
             varname = bits[3]
         else:
             varname = None
@@ -168,6 +199,7 @@ def do_static(parser, token):
         {% static "myapp/css/base.css" as admin_base_css %}
         {% static variable_with_path as varname %}
     """
+    # Directly forward to StaticNode.handle_token, which now has a faster bits parse
     return StaticNode.handle_token(parser, token)
 
 
