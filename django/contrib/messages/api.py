@@ -1,6 +1,8 @@
 from django.contrib.messages import constants
 from django.contrib.messages.storage import default_storage
 
+_SUCCESS = constants.SUCCESS
+
 __all__ = (
     "add_message",
     "get_messages",
@@ -98,7 +100,7 @@ def success(request, message, extra_tags="", fail_silently=False):
     """Add a message with the ``SUCCESS`` level."""
     add_message(
         request,
-        constants.SUCCESS,
+        _SUCCESS,
         message,
         extra_tags=extra_tags,
         fail_silently=fail_silently,
