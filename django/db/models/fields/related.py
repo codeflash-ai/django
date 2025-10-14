@@ -751,22 +751,34 @@ class ForeignObject(RelatedField):
 
     @staticmethod
     def get_instance_value_for_fields(instance, fields):
-        ret = []
+        # PREOPT: the main cost, by line profile, is the get_ancestor_link, getattr
+        # We batch ._meta fetch and getattr to local variables to reduce attr lookup cost.
+        # We also precompute the "pk" value once, and reuse for all fields that need it.
         opts = instance._meta
+        pk_value = instance.pk  # Save to variable - avoids repeated attribute lookup
+        # Build output in flat list and convert to tuple at end.
+        ret = []
+        append = ret.append  # Localize to avoid repeated attr lookup in big loop
+
+        # Save .get_ancestor_link to a local for repeated use
+        get_ancestor_link = opts.get_ancestor_link
+
+        # Localize instance for getattr
+        _getattr = getattr
+
         for field in fields:
-            # Gotcha: in some cases (like fixture loading) a model can have
-            # different values in parent_ptr_id and parent's id. So, use
-            # instance.pk (that is, parent_ptr_id) when asked for instance.id.
             if field.primary_key:
-                possible_parent_link = opts.get_ancestor_link(field.model)
+                possible_parent_link = get_ancestor_link(field.model)
+                # Use possible_parent_link only if not None and does not violate conditions
+                # The set of logic branches and exception handling is unchanged
                 if (
                     not possible_parent_link
                     or possible_parent_link.primary_key
                     or possible_parent_link.model._meta.abstract
                 ):
-                    ret.append(instance.pk)
+                    append(pk_value)
                     continue
-            ret.append(getattr(instance, field.attname))
+            append(_getattr(instance, field.attname))
         return tuple(ret)
 
     def get_attname_column(self):
