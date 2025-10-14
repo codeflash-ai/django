@@ -245,8 +245,13 @@ class WhereNode(tree.Node):
 
     @classmethod
     def _contains_aggregate(cls, obj):
-        if isinstance(obj, tree.Node):
-            return any(cls._contains_aggregate(c) for c in obj.children)
+        children = getattr(obj, "children", None)
+        if children is not None:
+            # Use a for-loop for faster short-circuiting over any()+generator
+            for c in children:
+                if cls._contains_aggregate(c):
+                    return True
+            return False
         return obj.contains_aggregate
 
     @cached_property
