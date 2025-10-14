@@ -48,10 +48,11 @@ SafeText = SafeString  # For backwards compatibility since Django 2.0.
 
 
 def _safety_decorator(safety_marker, func):
-    @wraps(func)
     def wrapper(*args, **kwargs):
         return safety_marker(func(*args, **kwargs))
 
+    wrapper.__name__ = func.__name__
+    wrapper.__doc__ = func.__doc__
     return wrapper
 
 
