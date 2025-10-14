@@ -11,9 +11,14 @@ def _get_func_parameters(func, remove_first):
 
 
 def _get_callable_parameters(meth_or_func):
-    is_method = inspect.ismethod(meth_or_func)
-    func = meth_or_func.__func__ if is_method else meth_or_func
-    return _get_func_parameters(func, remove_first=is_method)
+    # Avoid calling inspect.ismethod on common case (function)
+    func = getattr(meth_or_func, "__func__", None)
+    if func is not None:
+        # It's a bound method
+        return _get_func_parameters(func, remove_first=True)
+    else:
+        # It's a function or unbound method
+        return _get_func_parameters(meth_or_func, remove_first=False)
 
 
 ARG_KINDS = frozenset(
@@ -38,17 +43,24 @@ def get_func_full_args(func):
     """
     params = _get_callable_parameters(func)
     args = []
+    # Pre-bind empty/default for faster comparisons
+    param_empty = inspect.Parameter.empty
+    VAR_POSITIONAL = inspect.Parameter.VAR_POSITIONAL
+    VAR_KEYWORD = inspect.Parameter.VAR_KEYWORD
+
     for param in params:
         name = param.name
         # Ignore 'self'
         if name == "self":
             continue
-        if param.kind == inspect.Parameter.VAR_POSITIONAL:
+        kind = param.kind
+        if kind is VAR_POSITIONAL:
             name = "*" + name
-        elif param.kind == inspect.Parameter.VAR_KEYWORD:
+        elif kind is VAR_KEYWORD:
             name = "**" + name
-        if param.default != inspect.Parameter.empty:
-            args.append((name, param.default))
+        default = param.default
+        if default is not param_empty:
+            args.append((name, default))
         else:
             args.append((name,))
     return args
