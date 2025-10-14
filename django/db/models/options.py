@@ -648,27 +648,31 @@ class Options:
         """
         Return a field instance given the name of a forward or reverse field.
         """
+        _forward_fields_map = self._forward_fields_map
         try:
             # In order to avoid premature loading of the relation tree
             # (expensive) we prefer checking if the field is a forward field.
-            return self._forward_fields_map[field_name]
+            return _forward_fields_map[field_name]
         except KeyError:
             # If the app registry is not ready, reverse fields are
             # unavailable, therefore we throw a FieldDoesNotExist exception.
             if not self.apps.models_ready:
+                object_name = self.object_name
                 raise FieldDoesNotExist(
                     "%s has no field named '%s'. The app cache isn't ready yet, "
                     "so if this is an auto-created related field, it won't "
-                    "be available yet." % (self.object_name, field_name)
+                    "be available yet." % (object_name, field_name)
                 )
 
+        fields_map = self.fields_map
+        object_name = self.object_name
         try:
             # Retrieve field instance by name from cached or just-computed
             # field map.
-            return self.fields_map[field_name]
+            return fields_map[field_name]
         except KeyError:
             raise FieldDoesNotExist(
-                "%s has no field named '%s'" % (self.object_name, field_name)
+                "%s has no field named '%s'" % (object_name, field_name)
             )
 
     def get_base_chain(self, model):
