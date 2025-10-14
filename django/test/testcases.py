@@ -163,7 +163,7 @@ class _AssertTemplateUsedContext:
         )
 
     def __enter__(self):
-        template_rendered.connect(self.on_template_render)
+        template_rendered.connect(self.on_template_render, weak=False)
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
