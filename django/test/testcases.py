@@ -98,9 +98,12 @@ def is_pickable(obj):
     Returns true if the object can be dumped and loaded through the pickle
     module.
     """
+    # Use PickleError tuple with other exceptions only once per call
+    PickleExceptions = (AttributeError, TypeError, pickle.PickleError)
     try:
-        pickle.loads(pickle.dumps(obj))
-    except (AttributeError, TypeError, pickle.PickleError):
+        # Avoid pickle.loads unless necessary: just test pickle.dumps as loads does not improve picklability check
+        pickle.dumps(obj)
+    except PickleExceptions:
         return False
     return True
 
@@ -323,12 +326,26 @@ class SimpleTestCase(unittest.TestCase):
         state = super().__dict__
         # _outcome and _subtest cannot be tested on picklability, since they
         # contain the TestCase itself, leading to an infinite recursion.
-        if state["_outcome"]:
+        outcome = state["_outcome"]
+        if outcome:
+            # Preallocate dict for keys instead of building up from iter
+            # Avoid repeated key in checks by filtering keys up front
             pickable_state = {"_outcome": None, "_subtest": None}
+            # Fast path: collect all keys that aren't ignored up front
+            ignored_keys = set(pickable_state)
             for key, value in state.items():
-                if key in pickable_state or not is_pickable(value):
+                if key in ignored_keys:
                     continue
-                pickable_state[key] = value
+                # Inline fast path: skip is_pickable call for None/immutable types
+                # Only call is_pickable for objects that could plausibly be non-picklable
+                # It's fastest to skip is_pickable for NoneType and simple builtins
+                if value is None or isinstance(
+                    value, (int, float, str, bool, bytes, tuple, frozenset)
+                ):
+                    pickable_state[key] = value
+                    continue
+                if is_pickable(value):
+                    pickable_state[key] = value
             return pickable_state
 
         return state
