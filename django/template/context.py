@@ -7,6 +7,7 @@ _builtin_context_processors = ("django.template.context_processors.csrf",)
 
 class ContextPopException(Exception):
     "pop() has been called more times than push()"
+
     pass
 
 
@@ -55,7 +56,9 @@ class BaseContext:
         return ContextDict(self, *dicts, **kwargs)
 
     def pop(self):
-        if len(self.dicts) == 1:
+        try:
+            self.dicts[-2]
+        except IndexError:
             raise ContextPopException
         return self.dicts.pop()
 
