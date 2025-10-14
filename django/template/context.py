@@ -7,6 +7,7 @@ _builtin_context_processors = ("django.template.context_processors.csrf",)
 
 class ContextPopException(Exception):
     "pop() has been called more times than push()"
+
     pass
 
 
@@ -96,10 +97,10 @@ class BaseContext:
         return otherwise
 
     def setdefault(self, key, default=None):
-        try:
-            return self[key]
-        except KeyError:
-            self[key] = default
+        for d in reversed(self.dicts):
+            if key in d:
+                return d[key]
+        self.dicts[-1][key] = default
         return default
 
     def new(self, values=None):
