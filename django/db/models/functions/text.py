@@ -226,7 +226,9 @@ class Ord(Transform):
         return super().as_sql(compiler, connection, function="ORD", **extra_context)
 
     def as_sqlite(self, compiler, connection, **extra_context):
-        return super().as_sql(compiler, connection, function="UNICODE", **extra_context)
+        return Transform.as_sql(
+            self, compiler, connection, function="UNICODE", **extra_context
+        )
 
 
 class Repeat(Func):
