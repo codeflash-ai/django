@@ -710,19 +710,29 @@ class ForeignObject(RelatedField):
             raise ValueError(
                 "Related model %r cannot be resolved" % self.remote_field.model
             )
-        related_fields = []
-        for from_field_name, to_field_name in zip(self.from_fields, self.to_fields):
-            from_field = (
-                self
-                if from_field_name == RECURSIVE_RELATIONSHIP_CONSTANT
-                else self.opts.get_field(from_field_name)
+
+        # Cache methods and pk for performance in tight loop
+        opts_get_field = self.opts.get_field
+        model_meta = self.remote_field.model._meta
+        meta_get_field = model_meta.get_field
+        model_pk = model_meta.pk
+
+        # Convert RECURSIVE_RELATIONSHIP_CONSTANT to local for the comparison
+        rec_const = RECURSIVE_RELATIONSHIP_CONSTANT
+
+        # For potential micro-optimization, use list comprehension
+        related_fields = [
+            (
+                (
+                    self
+                    if from_field_name == rec_const
+                    else opts_get_field(from_field_name)
+                ),
+                model_pk if to_field_name is None else meta_get_field(to_field_name),
             )
-            to_field = (
-                self.remote_field.model._meta.pk
-                if to_field_name is None
-                else self.remote_field.model._meta.get_field(to_field_name)
-            )
-            related_fields.append((from_field, to_field))
+            for from_field_name, to_field_name in zip(self.from_fields, self.to_fields)
+        ]
+
         return related_fields
 
     @cached_property
