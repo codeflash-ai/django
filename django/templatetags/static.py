@@ -136,15 +136,17 @@ class StaticNode(template.Node):
         Class method to parse prefix node and return a Node.
         """
         bits = token.split_contents()
+        bits_len = len(bits)
 
-        if len(bits) < 2:
+        if bits_len < 2:
             raise template.TemplateSyntaxError(
                 "'%s' takes at least one argument (path to file)" % bits[0]
             )
 
         path = parser.compile_filter(bits[1])
 
-        if len(bits) >= 2 and bits[-2] == "as":
+        # This is slightly optimized to avoid unnecessary index checks and lookup
+        if bits_len >= 4 and bits[-2] == "as":
             varname = bits[3]
         else:
             varname = None
