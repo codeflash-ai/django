@@ -603,67 +603,73 @@ class ForeignObject(RelatedField):
         return errors
 
     def _check_unique_target(self):
-        rel_is_string = isinstance(self.remote_field.model, str)
+        rel_model = self.remote_field.model
+        rel_is_string = isinstance(rel_model, str)
         if rel_is_string or not self.requires_unique_target:
             return []
 
         try:
-            self.foreign_related_fields
+            foreign_related_fields = self.foreign_related_fields
         except exceptions.FieldDoesNotExist:
             return []
 
-        if not self.foreign_related_fields:
+        if not foreign_related_fields:
             return []
 
-        has_unique_constraint = any(
-            rel_field.unique for rel_field in self.foreign_related_fields
-        )
-        if not has_unique_constraint:
-            foreign_fields = {f.name for f in self.foreign_related_fields}
-            remote_opts = self.remote_field.model._meta
-            has_unique_constraint = any(
-                frozenset(ut) <= foreign_fields for ut in remote_opts.unique_together
-            ) or any(
-                frozenset(uc.fields) <= foreign_fields
-                for uc in remote_opts.total_unique_constraints
-            )
-
-        if not has_unique_constraint:
-            if len(self.foreign_related_fields) > 1:
-                field_combination = ", ".join(
-                    f"'{rel_field.name}'" for rel_field in self.foreign_related_fields
-                )
-                model_name = self.remote_field.model.__name__
-                return [
-                    checks.Error(
-                        f"No subset of the fields {field_combination} on model "
-                        f"'{model_name}' is unique.",
-                        hint=(
-                            "Mark a single field as unique=True or add a set of "
-                            "fields to a unique constraint (via unique_together "
-                            "or a UniqueConstraint (without condition) in the "
-                            "model Meta.constraints)."
-                        ),
-                        obj=self,
-                        id="fields.E310",
-                    )
-                ]
+        # Check single-field unique constraint first
+        for rel_field in foreign_related_fields:
+            if rel_field.unique:
+                break
+        else:
+            # Prepare for set operations only if necessary
+            foreign_fields = {f.name for f in foreign_related_fields}
+            remote_opts = rel_model._meta
+            # Use prebuilt frozensets for unique_together and total_unique_constraints, and short-circuit as soon as any is sufficient
+            for ut in remote_opts.unique_together:
+                if frozenset(ut) <= foreign_fields:
+                    break
             else:
-                field_name = self.foreign_related_fields[0].name
-                model_name = self.remote_field.model.__name__
-                return [
-                    checks.Error(
-                        f"'{model_name}.{field_name}' must be unique because it is "
-                        "referenced by a foreign key.",
-                        hint=(
-                            "Add unique=True to this field or add a "
-                            "UniqueConstraint (without condition) in the model "
-                            "Meta.constraints."
-                        ),
-                        obj=self,
-                        id="fields.E311",
-                    )
-                ]
+                for uc in remote_opts.total_unique_constraints:
+                    if frozenset(uc.fields) <= foreign_fields:
+                        break
+                else:
+                    # if not has_unique_constraint
+                    if len(foreign_related_fields) > 1:
+                        field_combination = ", ".join(
+                            f"'{rel_field.name}'"
+                            for rel_field in foreign_related_fields
+                        )
+                        model_name = rel_model.__name__
+                        return [
+                            checks.Error(
+                                f"No subset of the fields {field_combination} on model "
+                                f"'{model_name}' is unique.",
+                                hint=(
+                                    "Mark a single field as unique=True or add a set of "
+                                    "fields to a unique constraint (via unique_together "
+                                    "or a UniqueConstraint (without condition) in the "
+                                    "model Meta.constraints)."
+                                ),
+                                obj=self,
+                                id="fields.E310",
+                            )
+                        ]
+                    else:
+                        field_name = foreign_related_fields[0].name
+                        model_name = rel_model.__name__
+                        return [
+                            checks.Error(
+                                f"'{model_name}.{field_name}' must be unique because it is "
+                                "referenced by a foreign key.",
+                                hint=(
+                                    "Add unique=True to this field or add a "
+                                    "UniqueConstraint (without condition) in the model "
+                                    "Meta.constraints."
+                                ),
+                                obj=self,
+                                id="fields.E311",
+                            )
+                        ]
         return []
 
     def deconstruct(self):
