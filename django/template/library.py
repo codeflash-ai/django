@@ -61,12 +61,19 @@ class Library:
         def lower(value):
             return value.lower()
         """
+
+        # Localize tuple to avoid creating the literal every call
+        ATTRS = ("expects_localtime", "is_safe", "needs_autoescape")
+
+        # Fast-path: check the "all None" case first via identity
         if name is None and filter_func is None:
             # @register.filter()
             def dec(func):
                 return self.filter_function(func, **flags)
 
             return dec
+
+        # For "not None" case for name, filter_func still None
         elif name is not None and filter_func is None:
             if callable(name):
                 # @register.filter
@@ -77,19 +84,25 @@ class Library:
                     return self.filter(name, func, **flags)
 
                 return dec
+
         elif name is not None and filter_func is not None:
             # register.filter('somename', somefunc)
             self.filters[name] = filter_func
-            for attr in ("expects_localtime", "is_safe", "needs_autoescape"):
-                if attr in flags:
-                    value = flags[attr]
-                    # set the flag on the filter for FilterExpression.resolve
-                    setattr(filter_func, attr, value)
-                    # set the flag on the innermost decorated function
-                    # for decorators that need it, e.g. stringfilter
-                    setattr(unwrap(filter_func), attr, value)
+
+            # Optimize flag setting:
+            if flags:
+                uw = None
+                # Only call unwrap() lazily and only if needed
+                for attr in ATTRS:
+                    if attr in flags:
+                        value = flags[attr]
+                        setattr(filter_func, attr, value)
+                        if uw is None:
+                            uw = unwrap(filter_func)
+                        setattr(uw, attr, value)
             filter_func._filter_name = name
             return filter_func
+
         else:
             raise ValueError(
                 "Unsupported arguments to Library.filter: (%r, %r)"
