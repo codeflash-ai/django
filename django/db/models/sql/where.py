@@ -194,7 +194,8 @@ class WhereNode(tree.Node):
         return cols
 
     def get_source_expressions(self):
-        return self.children[:]
+        # Use list.copy() for slightly better readability and potentially faster on large lists
+        return self.children.copy()
 
     def set_source_expressions(self, children):
         assert len(children) == len(self.children)
