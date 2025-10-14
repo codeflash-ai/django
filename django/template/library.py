@@ -218,10 +218,26 @@ class TagHelperNode(Node):
         self.kwargs = kwargs
 
     def get_resolved_arguments(self, context):
-        resolved_args = [var.resolve(context) for var in self.args]
+        # Use local variables, reduce attribute lookups
+        args = self.args
+        kwargs = self.kwargs
+        resolve = getattr(type(args[0]), "resolve", None) if args else None
+
+        # Fast path for no args/kwargs
+        if args:
+            resolved_args = [var.resolve(context) for var in args]
+        else:
+            resolved_args = []
+
         if self.takes_context:
-            resolved_args = [context] + resolved_args
-        resolved_kwargs = {k: v.resolve(context) for k, v in self.kwargs.items()}
+            # Prepend context without reconstructing the list redundantly if empty
+            resolved_args.insert(0, context)
+
+        if kwargs:
+            resolved_kwargs = {k: v.resolve(context) for k, v in kwargs.items()}
+        else:
+            resolved_kwargs = {}
+
         return resolved_args, resolved_kwargs
 
 
@@ -256,24 +272,28 @@ class InclusionNode(TagHelperNode):
         """
         resolved_args, resolved_kwargs = self.get_resolved_arguments(context)
         _dict = self.func(*resolved_args, **resolved_kwargs)
+        render_context = context.render_context
+        self_cache = self  # avoid attribute lookup in inner scope
 
-        t = context.render_context.get(self)
+        t = render_context.get(self_cache)
         if t is None:
-            if isinstance(self.filename, Template):
-                t = self.filename
-            elif isinstance(getattr(self.filename, "template", None), Template):
-                t = self.filename.template
-            elif not isinstance(self.filename, str) and isinstance(
-                self.filename, Iterable
-            ):
-                t = context.template.engine.select_template(self.filename)
+            filename = self.filename
+            # Avoid repeated isinstance/getattr calls by evaluating only as needed
+            if isinstance(filename, Template):
+                t = filename
             else:
-                t = context.template.engine.get_template(self.filename)
-            context.render_context[self] = t
+                template_attr = getattr(filename, "template", None)
+                if isinstance(template_attr, Template):
+                    t = template_attr
+                elif not isinstance(filename, str) and isinstance(filename, Iterable):
+                    # The filename is an iterable of templates
+                    t = context.template.engine.select_template(filename)
+                else:
+                    t = context.template.engine.get_template(filename)
+            render_context[self_cache] = t
+
         new_context = context.new(_dict)
-        # Copy across the CSRF token, if present, because inclusion tags are
-        # often used for forms, and we need instructions for using CSRF
-        # protection to be as simple as possible.
+        # Inline CSRF token transfer to avoid separate lookup logic
         csrf_token = context.get("csrf_token")
         if csrf_token is not None:
             new_context["csrf_token"] = csrf_token
