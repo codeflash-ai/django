@@ -20,6 +20,12 @@ from django.core.wsgi import get_wsgi_application
 from django.db import connections
 from django.utils.module_loading import import_string
 
+_BROKEN_PIPE_ERRORS = (
+    BrokenPipeError,
+    ConnectionAbortedError,
+    ConnectionResetError,
+)
+
 __all__ = ("WSGIServer", "WSGIRequestHandler")
 
 logger = logging.getLogger("django.server")
@@ -55,14 +61,7 @@ def get_internal_wsgi_application():
 
 def is_broken_pipe_error():
     exc_type, _, _ = sys.exc_info()
-    return issubclass(
-        exc_type,
-        (
-            BrokenPipeError,
-            ConnectionAbortedError,
-            ConnectionResetError,
-        ),
-    )
+    return issubclass(exc_type, _BROKEN_PIPE_ERRORS)
 
 
 class WSGIServer(simple_server.WSGIServer):
