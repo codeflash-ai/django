@@ -582,20 +582,23 @@ class ForeignObject(RelatedField):
 
     def _check_to_fields_exist(self):
         # Skip nonexistent models.
-        if isinstance(self.remote_field.model, str):
+        remote_model = self.remote_field.model
+        if isinstance(remote_model, str):
             return []
 
         errors = []
+        model_meta = remote_model._meta
+        model_label = model_meta.label
+        get_field = model_meta.get_field
         for to_field in self.to_fields:
             if to_field:
                 try:
-                    self.remote_field.model._meta.get_field(to_field)
+                    get_field(to_field)
                 except exceptions.FieldDoesNotExist:
                     errors.append(
                         checks.Error(
                             "The to_field '%s' doesn't exist on the related "
-                            "model '%s'."
-                            % (to_field, self.remote_field.model._meta.label),
+                            "model '%s'." % (to_field, model_label),
                             obj=self,
                             id="fields.E312",
                         )
