@@ -13,9 +13,11 @@ class Loader(BaseLoader):
     def __init__(self, engine, dirs=None):
         super().__init__(engine)
         self.dirs = dirs
+        # Cache the resolved dirs to avoid repeated conditional checks
+        self._resolved_dirs = dirs if dirs is not None else engine.dirs
 
     def get_dirs(self):
-        return self.dirs if self.dirs is not None else self.engine.dirs
+        return self._resolved_dirs
 
     def get_contents(self, origin):
         try:
