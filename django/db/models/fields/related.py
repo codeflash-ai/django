@@ -38,6 +38,7 @@ from .related_lookups import (
     RelatedLessThanOrEqual,
 )
 from .reverse_related import ForeignObjectRel, ManyToManyRel, ManyToOneRel, OneToOneRel
+import keyword
 
 RECURSIVE_RELATIONSHIP_CONSTANT = "self"
 
@@ -126,22 +127,27 @@ class RelatedField(FieldCacheMixin, Field):
         ]
 
     def _check_related_name_is_valid(self):
-        import keyword
-
-        related_name = self.remote_field.related_name
+        # Use local bindings to avoid repeated attribute lookups and improve access speed
+        remote_field = self.remote_field
+        related_name = remote_field.related_name
         if related_name is None:
             return []
-        is_valid_id = (
-            not keyword.iskeyword(related_name) and related_name.isidentifier()
-        )
-        if not (is_valid_id or related_name.endswith("+")):
+        # Use a fast-path for "+" suffix check before identifier validation
+        if related_name.endswith("+"):
+            return []
+        # Use cached methods and local vars for better performance
+        if not (not keyword.iskeyword(related_name) and related_name.isidentifier()):
+            model = self.model
+            # Localize attribute lookups
+            object_name = model._meta.object_name
+            name = self.name
             return [
                 checks.Error(
                     "The name '%s' is invalid related_name for field %s.%s"
                     % (
-                        self.remote_field.related_name,
-                        self.model._meta.object_name,
-                        self.name,
+                        related_name,
+                        object_name,
+                        name,
                     ),
                     hint=(
                         "Related name must be a valid Python identifier or end with a "
