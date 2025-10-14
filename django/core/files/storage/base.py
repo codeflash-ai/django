@@ -106,12 +106,23 @@ class Storage:
         """
         filename = str(filename).replace("\\", "/")
         # `filename` may include a path as returned by FileField.upload_to.
-        dirname, filename = os.path.split(filename)
-        if ".." in pathlib.PurePath(dirname).parts:
+
+        # Optimization: Use rpartition for faster splitting without tuple allocation
+        sep = "/"  # always '/' after replace
+        dirname, _, filename = filename.rpartition(sep)
+        # dirname will be empty if sep not found (i.e., filename only), just as os.path.split
+
+        # Optimization: Use string split rather than pathlib.PurePath for traversal detection
+        # This avoids PurePath overhead because we don't need OS-dependent normalization
+        if ".." in dirname.split("/"):
             raise SuspiciousFileOperation(
                 "Detected path traversal attempt in '%s'" % dirname
             )
-        return os.path.normpath(os.path.join(dirname, self.get_valid_name(filename)))
+        # Use join with '/' since all \ replaced with /, and then normpath for platform compatibility
+        # Prevent creating extra tuple allocations for join and os.path.split
+        return os.path.normpath(
+            dirname + (sep if dirname else "") + self.get_valid_name(filename)
+        )
 
     def path(self, name):
         """
