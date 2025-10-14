@@ -55,14 +55,16 @@ def resolve_relation(scope_model, relation):
       * An "app_label.ModelName" string.
       * A model class, which will be returned unchanged.
     """
+    if not isinstance(relation, str):
+        return relation
+
     # Check for recursive relations
     if relation == RECURSIVE_RELATIONSHIP_CONSTANT:
-        relation = scope_model
+        return scope_model
 
     # Look for an "app.Model" relation
-    if isinstance(relation, str):
-        if "." not in relation:
-            relation = "%s.%s" % (scope_model._meta.app_label, relation)
+    if "." not in relation:
+        return f"{scope_model._meta.app_label}.{relation}"
 
     return relation
 
