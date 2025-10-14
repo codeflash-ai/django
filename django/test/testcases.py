@@ -744,37 +744,47 @@ class SimpleTestCase(unittest.TestCase):
         if msg_prefix:
             msg_prefix += ": "
 
+        # Avoid repeated hasattr checks
         if template_name is not None and response is not None:
             self._check_test_client_response(response, "templates", method_name)
+            templates = getattr(response, "templates", None)
+        else:
+            templates = (
+                getattr(response, "templates", None) if response is not None else None
+            )
 
-        if not hasattr(response, "templates") or (response is None and template_name):
+        # Only one conditional branch is now necessary due to above optimization
+        if templates is None:
             if response:
                 template_name = response
                 response = None
             # use this template with context manager
             return template_name, None, msg_prefix
 
-        template_names = [t.name for t in response.templates if t.name is not None]
+        # Listcomp with filter in generator for memory (don't create Nones)
+        template_names = [t.name for t in templates if t.name is not None]
         return None, template_names, msg_prefix
 
     def _assert_template_used(self, template_name, template_names, msg_prefix, count):
         if not template_names:
             self.fail(msg_prefix + "No templates used to render the response")
-        self.assertTrue(
-            template_name in template_names,
-            msg_prefix + "Template '%s' was not a template used to render"
-            " the response. Actual template(s) used: %s"
-            % (template_name, ", ".join(template_names)),
-        )
+
+        # Use 'in' before join (short-circuit if not found) for early fail
+        if template_name not in template_names:
+            self.fail(
+                msg_prefix + "Template '%s' was not a template used to render"
+                " the response. Actual template(s) used: %s"
+                % (template_name, ", ".join(template_names))
+            )
 
         if count is not None:
-            self.assertEqual(
-                template_names.count(template_name),
-                count,
-                msg_prefix + "Template '%s' was expected to be rendered %d "
-                "time(s) but was actually rendered %d time(s)."
-                % (template_name, count, template_names.count(template_name)),
-            )
+            actual_count = template_names.count(template_name)
+            if actual_count != count:
+                self.fail(
+                    msg_prefix + "Template '%s' was expected to be rendered %d "
+                    "time(s) but was actually rendered %d time(s)."
+                    % (template_name, count, actual_count)
+                )
 
     def assertTemplateUsed(
         self, response=None, template_name=None, msg_prefix="", count=None
