@@ -60,7 +60,8 @@ from django.utils.formats import localize
 from django.utils.html import conditional_escape, escape
 from django.utils.regex_helper import _lazy_re_compile
 from django.utils.safestring import SafeData, SafeString, mark_safe
-from django.utils.text import get_text_list, smart_split, unescape_string_literal
+from django.utils.text import (get_text_list, smart_split,
+                               unescape_string_literal)
 from django.utils.timezone import template_localtime
 from django.utils.translation import gettext_lazy, pgettext_lazy
 
@@ -1095,30 +1096,25 @@ def token_kwargs(bits, parser, support_legacy=False):
     """
     if not bits:
         return {}
-    match = kwarg_re.match(bits[0])
-    kwarg_format = match and match[1]
-    if not kwarg_format:
-        if not support_legacy:
-            return {}
-        if len(bits) < 3 or bits[1] != "as":
-            return {}
 
     kwargs = {}
     while bits:
-        if kwarg_format:
-            match = kwarg_re.match(bits[0])
-            if not match or not match[1]:
-                return kwargs
+        match = kwarg_re.match(bits[0])
+        if match and match[1]:
             key, value = match.groups()
             del bits[:1]
         else:
+            if not support_legacy:
+                return kwargs if kwargs else {}
             if len(bits) < 3 or bits[1] != "as":
-                return kwargs
+                return kwargs if kwargs else {}
             key, value = bits[2], bits[0]
             del bits[:3]
         kwargs[key] = parser.compile_filter(value)
-        if bits and not kwarg_format:
-            if bits[0] != "and":
-                return kwargs
-            del bits[:1]
+        if bits:
+            # Only check for "and" for legacy format (foo as bar)
+            if not (kwarg_re.match(bits[0]) and kwarg_re.match(bits[0]).group(1)):
+                if bits[0] != "and":
+                    return kwargs
+                del bits[:1]
     return kwargs
