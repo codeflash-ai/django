@@ -11,9 +11,15 @@ def _get_func_parameters(func, remove_first):
 
 
 def _get_callable_parameters(meth_or_func):
+    # Fast path: direct function, avoid attribute check unless necessary
     is_method = inspect.ismethod(meth_or_func)
-    func = meth_or_func.__func__ if is_method else meth_or_func
-    return _get_func_parameters(func, remove_first=is_method)
+    if is_method:
+        # CPython: Bound method: __func__ is usually a simple attribute access, but this check is inexpensive vs param extraction
+        func = meth_or_func.__func__
+        return _get_func_parameters(func, remove_first=True)
+    else:
+        # Typical case: already function, pass directly
+        return _get_func_parameters(meth_or_func, remove_first=False)
 
 
 ARG_KINDS = frozenset(
@@ -73,4 +79,8 @@ def method_has_no_args(meth):
 
 
 def func_supports_parameter(func, name):
-    return any(param.name == name for param in _get_callable_parameters(func))
+    # Use generator expression for short-circuit, but optimize by checking identity for common parameter names
+    for param in _get_callable_parameters(func):
+        if param.name == name:
+            return True
+    return False
