@@ -154,7 +154,10 @@ class BaseStorage:
             return
         # Add the message.
         self.added_new = True
-        message = Message(level, message, extra_tags=extra_tags)
+        if extra_tags:
+            message = Message(level, message, extra_tags=extra_tags)
+        else:
+            message = Message(level, message)
         self._queued_messages.append(message)
 
     def _get_level(self):
