@@ -71,7 +71,8 @@ def make_style(opts=(), **kwargs):
         KEYWORD = make_style(fg='yellow')
         COMMENT = make_style(fg='blue', opts=('bold',))
     """
-    return lambda text: colorize(text, opts, **kwargs)
+    # Bind opts and kwargs as default arguments to lambda to avoid rebinding on each call
+    return lambda text, opts=opts, kwargs=kwargs: colorize(text, opts, **kwargs)
 
 
 NOCOLOR_PALETTE = "nocolor"
