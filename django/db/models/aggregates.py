@@ -49,10 +49,11 @@ class Aggregate(Func):
         return [e._output_field_or_none for e in super().get_source_expressions()]
 
     def get_source_expressions(self):
-        source_expressions = super().get_source_expressions()
         if self.filter:
-            return source_expressions + [self.filter]
-        return source_expressions
+            source_expressions = self.source_expressions.copy()
+            source_expressions.append(self.filter)
+            return source_expressions
+        return self.source_expressions
 
     def set_source_expressions(self, exprs):
         self.filter = self.filter and exprs.pop()
