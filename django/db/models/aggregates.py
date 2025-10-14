@@ -55,7 +55,8 @@ class Aggregate(Func):
         return source_expressions
 
     def set_source_expressions(self, exprs):
-        self.filter = self.filter and exprs.pop()
+        if self.filter:
+            self.filter = exprs.pop()
         return super().set_source_expressions(exprs)
 
     def resolve_expression(
