@@ -36,30 +36,36 @@ def reverse(viewname, urlconf=None, args=None, kwargs=None, current_app=None):
     if not isinstance(viewname, str):
         view = viewname
     else:
-        *path, view = viewname.split(":")
+        path_split = viewname.split(":")
+        *path, view = path_split
 
         if current_app:
             current_path = current_app.split(":")
-            current_path.reverse()
+            current_path_len = len(current_path)
+            current_path_index = current_path_len - 1
         else:
             current_path = None
+            current_path_index = -1
 
         resolved_path = []
-        ns_pattern = ""
+        ns_pattern_parts = []
         ns_converters = {}
+
         for ns in path:
-            current_ns = current_path.pop() if current_path else None
+            if current_path:
+                if current_path_index >= 0:
+                    current_ns = current_path[current_path_index]
+                    current_path_index -= 1
+                else:
+                    current_ns = None
+            else:
+                current_ns = None
             # Lookup the name to see if it could be an app identifier.
             try:
                 app_list = resolver.app_dict[ns]
-                # Yes! Path part matches an app in the current Resolver.
                 if current_ns and current_ns in app_list:
-                    # If we are reversing for a particular app, use that
-                    # namespace.
                     ns = current_ns
                 elif ns not in app_list:
-                    # The name isn't shared by one of the instances (i.e.,
-                    # the default) so pick the first instance as the default.
                     ns = app_list[0]
             except KeyError:
                 pass
@@ -70,7 +76,7 @@ def reverse(viewname, urlconf=None, args=None, kwargs=None, current_app=None):
             try:
                 extra, resolver = resolver.namespace_dict[ns]
                 resolved_path.append(ns)
-                ns_pattern += extra
+                ns_pattern_parts.append(extra)
                 ns_converters.update(resolver.pattern.converters)
             except KeyError as key:
                 if resolved_path:
@@ -80,7 +86,8 @@ def reverse(viewname, urlconf=None, args=None, kwargs=None, current_app=None):
                     )
                 else:
                     raise NoReverseMatch("%s is not a registered namespace" % key)
-        if ns_pattern:
+        if ns_pattern_parts:
+            ns_pattern = "".join(ns_pattern_parts)
             resolver = get_ns_resolver(
                 ns_pattern, resolver, tuple(ns_converters.items())
             )
