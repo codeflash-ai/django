@@ -487,7 +487,8 @@ class ClearableFileInput(FileInput):
         """
         Return the file object if it has a defined url attribute.
         """
-        if self.is_initial(value):
+        # Inline is_initial logic to avoid function call overhead
+        if value and hasattr(value, "url") and value.url:
             return value
 
     def get_context(self, name, value, attrs):
@@ -1204,7 +1205,6 @@ class SelectDateWidget(Widget):
         return data.get(name)
 
     def value_omitted_from_data(self, data, files, name):
-        return not any(
-            ("{}_{}".format(name, interval) in data)
-            for interval in ("year", "month", "day")
+        return not (
+            f"{name}_year" in data or f"{name}_month" in data or f"{name}_day" in data
         )
