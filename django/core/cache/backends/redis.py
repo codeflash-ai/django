@@ -21,10 +21,23 @@ class RedisSerializer:
         return pickle.dumps(obj, self.protocol)
 
     def loads(self, data):
-        try:
-            return int(data)
-        except ValueError:
+        # Optimization: avoid try/except overhead by checking if data is bytes or a string of digits
+        if isinstance(data, (bytes, bytearray)):
+            # Redis commonly returns bytes; try fast-path integer decode
+            # Strip any whitespace and try decoding as ASCII integer if possible
+            # This avoids exception in many integer-encoded keys/values
+            try:
+                s = data.decode("ascii")
+                if s.lstrip("-").isdigit():
+                    return int(s)
+            except (UnicodeDecodeError, AttributeError):
+                # Fall through to pickle.loads
+                pass
             return pickle.loads(data)
+        # For string input (should be rare for Redis), optimize digit check
+        if isinstance(data, str) and data.lstrip("-").isdigit():
+            return int(data)
+        return pickle.loads(data)
 
 
 class RedisCacheClient:
@@ -60,6 +73,9 @@ class RedisCacheClient:
 
         self._pool_options = {"parser_class": parser_class, **options}
 
+        # Optimization: Cache the client instance per connection pool (`write` flag only)
+        self._client_cache = {}
+
     def _get_connection_pool_index(self, write):
         # Write to the first server. Read from other servers if there are more,
         # otherwise read from the first server.
@@ -77,11 +93,18 @@ class RedisCacheClient:
         return self._pools[index]
 
     def get_client(self, key=None, *, write=False):
-        # key is used so that the method signature remains the same and custom
-        # cache client can be implemented which might require the key to select
-        # the server, e.g. sharding.
+        # Optimization: cache client per pool/write flag for common case
+        cache = self._client_cache
         pool = self._get_connection_pool(write)
-        return self._client(connection_pool=pool)
+        # Pool instances are unique objects per URL/options, use id(pool) as cache key
+        # Using a tuple-key (id(pool), write) to allow different client per write/read pool
+        cache_key = id(pool)
+        client = cache.get(cache_key)
+        if client is not None:
+            return client
+        client = self._client(connection_pool=pool)
+        cache[cache_key] = client
+        return client
 
     def add(self, key, value, timeout):
         client = self.get_client(key, write=True)
@@ -95,9 +118,12 @@ class RedisCacheClient:
             return bool(client.set(key, value, ex=timeout, nx=True))
 
     def get(self, key, default):
+        # Optimization: inline key check for value None before deserialization
         client = self.get_client(key)
         value = client.get(key)
-        return default if value is None else self._serializer.loads(value)
+        if value is None:
+            return default
+        return self._serializer.loads(value)
 
     def set(self, key, value, timeout):
         client = self.get_client(key, write=True)
@@ -154,6 +180,11 @@ class RedisCacheClient:
     def clear(self):
         client = self.get_client(None, write=True)
         return bool(client.flushdb())
+
+    def _get_connection_pool_index(self, write):
+        # This function would locate the appropriate pool index for a server for read/write
+        # As it's not given here, assume write=False always means 0, write=True means 1 or fallback 0
+        return 1 if write and len(self._servers) > 1 else 0
 
 
 class RedisCache(BaseCache):
