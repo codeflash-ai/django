@@ -243,10 +243,12 @@ class Expressions(TableColumns):
             return
         expressions = deepcopy(self.expressions)
         self.columns = []
+        append = self.columns.append
         for col in self.compiler.query._gen_cols([expressions]):
-            if col.target.column == old_column:
-                col.target.column = new_column
-            self.columns.append(col.target.column)
+            target = col.target
+            if target.column == old_column:
+                target.column = new_column
+            append(target.column)
         self.expressions = expressions
 
     def __str__(self):
