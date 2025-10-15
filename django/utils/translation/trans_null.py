@@ -4,6 +4,8 @@
 
 from django.conf import settings
 
+__slots__ = ()
+
 
 def gettext(message):
     return message
