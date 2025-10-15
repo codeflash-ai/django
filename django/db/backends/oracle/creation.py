@@ -383,7 +383,8 @@ class DatabaseCreation(BaseDatabaseCreation):
         prefixed entry from the main settings dict.
         """
         settings_dict = self.connection.settings_dict
-        val = settings_dict["TEST"].get(key, default)
+        test_settings = settings_dict["TEST"]
+        val = test_settings.get(key, default)
         if val is None and prefixed:
             val = TEST_DATABASE_PREFIX + settings_dict[prefixed]
         return val
