@@ -1909,6 +1909,10 @@ class QuerySet(AltersData):
         Return a copy of the current QuerySet. A lightweight alternative
         to deepcopy().
         """
+        # Faster copy for tuple attributes
+        prefetch_related_lookups = self._prefetch_related_lookups
+        if prefetch_related_lookups:
+            prefetch_related_lookups = tuple(prefetch_related_lookups)
         c = self.__class__(
             model=self.model,
             query=self.query.chain(),
@@ -1917,7 +1921,7 @@ class QuerySet(AltersData):
         )
         c._sticky_filter = self._sticky_filter
         c._for_write = self._for_write
-        c._prefetch_related_lookups = self._prefetch_related_lookups[:]
+        c._prefetch_related_lookups = prefetch_related_lookups
         c._known_related_objects = self._known_related_objects
         c._iterable_class = self._iterable_class
         c._fields = self._fields
