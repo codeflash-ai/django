@@ -12,6 +12,7 @@ from .resolvers import (
     URLPattern,
     URLResolver,
 )
+from django.views import View as _View
 
 
 def include(arg, namespace=None):
@@ -60,14 +61,13 @@ def include(arg, namespace=None):
 
 
 def _path(route, view, kwargs=None, name=None, Pattern=None):
-    from django.views import View
-
+    # kwargs type checking as before
     if kwargs is not None and not isinstance(kwargs, dict):
         raise TypeError(
             f"kwargs argument must be a dict, but got {kwargs.__class__.__name__}."
         )
+    # Use tuple for the includes check, no change in behavior
     if isinstance(view, (list, tuple)):
-        # For include(...) processing.
         pattern = Pattern(route, is_endpoint=False)
         urlconf_module, app_name, namespace = view
         return URLResolver(
@@ -80,7 +80,7 @@ def _path(route, view, kwargs=None, name=None, Pattern=None):
     elif callable(view):
         pattern = Pattern(route, name=name, is_endpoint=True)
         return URLPattern(pattern, view, kwargs, name)
-    elif isinstance(view, View):
+    elif isinstance(view, _View):
         view_cls_name = view.__class__.__name__
         raise TypeError(
             f"view must be a callable, pass {view_cls_name}.as_view(), not "
