@@ -66,9 +66,16 @@ class TableColumns(Table):
     def __init__(self, table, columns):
         self.table = table
         self.columns = columns
+        self._columns_set = None
+        if isinstance(columns, (list, tuple)) and len(columns) > 2:
+            self._columns_set = set(columns)
 
     def references_column(self, table, column):
-        return self.table == table and column in self.columns
+        if self.table != table:
+            return False
+        if self._columns_set is not None:
+            return column in self._columns_set
+        return column in self.columns
 
     def rename_column_references(self, table, old_column, new_column):
         if self.table == table:
@@ -162,9 +169,12 @@ class ForeignKeyName(TableColumns):
         )
 
     def references_column(self, table, column):
-        return super().references_column(
-            table, column
-        ) or self.to_reference.references_column(table, column)
+        if self.table == table:
+            if self._columns_set is not None:
+                return column in self._columns_set
+            elif column in self.columns:
+                return True
+        return self.to_reference.references_column(table, column)
 
     def rename_table_references(self, old_table, new_table):
         super().rename_table_references(old_table, new_table)
