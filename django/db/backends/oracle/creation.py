@@ -382,10 +382,17 @@ class DatabaseCreation(BaseDatabaseCreation):
         Return a value from the test settings dict, or a given default, or a
         prefixed entry from the main settings dict.
         """
+        # Avoid repeated attribute lookups and dict lookups for better performance
         settings_dict = self.connection.settings_dict
-        val = settings_dict["TEST"].get(key, default)
+
+        # Get reference to test_settings dict (avoids repeated lookup of settings_dict['TEST'])
+        test_settings = settings_dict["TEST"]
+        # Get value from test_settings dict
+        val = test_settings.get(key, default)
         if val is None and prefixed:
-            val = TEST_DATABASE_PREFIX + settings_dict[prefixed]
+            # Use local variables instead of repeated dict access
+            main_value = settings_dict[prefixed]
+            val = TEST_DATABASE_PREFIX + main_value
         return val
 
     def _test_database_name(self):
