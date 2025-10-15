@@ -58,11 +58,11 @@ class Operation:
         under django.db.migrations), positional arguments, and keyword
         arguments.
         """
-        return (
-            self.__class__.__name__,
-            self._constructor_args[0],
-            self._constructor_args[1],
-        )
+        # Local variable access is faster than attribute lookup on every access.
+        cls = self.__class__
+        name = cls.__name__
+        args, kwargs = self._constructor_args
+        return (name, args, kwargs)
 
     def state_forwards(self, app_label, state):
         """
