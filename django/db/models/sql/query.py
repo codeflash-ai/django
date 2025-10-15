@@ -426,10 +426,12 @@ class Query(BaseExpression):
         if klass and obj.__class__ != klass:
             obj.__class__ = klass
         if not obj.filter_is_sticky:
-            obj.used_aliases = set()
+            if obj.used_aliases:
+                obj.used_aliases.clear()
         obj.filter_is_sticky = False
-        if hasattr(obj, "_setup_query"):
-            obj._setup_query()
+        setup_query = getattr(obj, "_setup_query", None)
+        if setup_query:
+            setup_query()
         return obj
 
     def relabeled_clone(self, change_map):
