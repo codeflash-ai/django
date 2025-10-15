@@ -35,6 +35,7 @@ from django.db.models.utils import (
 from django.utils import timezone
 from django.utils.deprecation import RemovedInDjango60Warning
 from django.utils.functional import cached_property, partition
+import asyncio
 
 # The maximum number of results to fetch in a get() query.
 MAX_GET_RESULTS = 21
@@ -1328,7 +1329,7 @@ class QuerySet(AltersData):
         return self.query.explain(using=self.db, format=format, **options)
 
     async def aexplain(self, *, format=None, **options):
-        return await sync_to_async(self.explain)(format=format, **options)
+        return await asyncio.to_thread(self.explain, format=format, **options)
 
     ##################################################
     # PUBLIC METHODS THAT RETURN A QUERYSET SUBCLASS #
