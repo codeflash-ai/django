@@ -2,6 +2,8 @@ from functools import wraps
 
 from asgiref.sync import iscoroutinefunction
 
+_COROUTINE_FUNCTION_CACHE = {}
+
 
 def xframe_options_deny(view_func):
     """
@@ -72,8 +74,15 @@ def xframe_options_exempt(view_func):
     def some_view(request):
         ...
     """
+    # Use id(view_func) for cache key to handle reloading edge cases
+    func_id = id(view_func)
+    try:
+        is_coroutine = _COROUTINE_FUNCTION_CACHE[func_id]
+    except KeyError:
+        is_coroutine = iscoroutinefunction(view_func)
+        _COROUTINE_FUNCTION_CACHE[func_id] = is_coroutine
 
-    if iscoroutinefunction(view_func):
+    if is_coroutine:
 
         async def _view_wrapper(*args, **kwargs):
             response = await view_func(*args, **kwargs)
