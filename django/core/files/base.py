@@ -13,8 +13,9 @@ class File(FileProxyMixin):
         if name is None:
             name = getattr(file, "name", None)
         self.name = name
-        if hasattr(file, "mode"):
-            self.mode = file.mode
+        mode = getattr(file, "mode", None)
+        if mode is not None:
+            self.mode = mode
 
     def __str__(self):
         return self.name or ""
