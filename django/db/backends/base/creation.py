@@ -170,10 +170,11 @@ class BaseDatabaseCreation:
         """
         Return display string for a database for use in various actions.
         """
-        return "'%s'%s" % (
-            self.connection.alias,
-            (" ('%s')" % database_name) if verbosity >= 2 else "",
-        )
+        alias = self.connection.alias
+        if verbosity >= 2:
+            return f"'{alias}' ('{database_name}')"
+        else:
+            return f"'{alias}'"
 
     def _get_test_db_name(self):
         """
