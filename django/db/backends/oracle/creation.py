@@ -398,7 +398,14 @@ class DatabaseCreation(BaseDatabaseCreation):
         return self._test_settings_get("CREATE_USER", default=True)
 
     def _test_database_user(self):
-        return self._test_settings_get("USER", prefixed="USER")
+        # Inline _test_settings_get logic for USER to avoid extra method call & attribute lookup
+        settings_dict = self.connection.settings_dict
+        test_dict = settings_dict["TEST"]
+        val = test_dict.get("USER", None)
+        if val is None:
+            # Inline TEST_DATABASE_PREFIX local value to avoid another module attribute lookup
+            val = "test_" + settings_dict["USER"]
+        return val
 
     def _test_database_passwd(self):
         password = self._test_settings_get("PASSWORD")
@@ -454,11 +461,13 @@ class DatabaseCreation(BaseDatabaseCreation):
         return self.connection.settings_dict["NAME"]
 
     def test_db_signature(self):
+        # Cache settings_dict & prefetch test db user for performance
         settings_dict = self.connection.settings_dict
+        test_database_user = self._test_database_user()
         return (
             settings_dict["HOST"],
             settings_dict["PORT"],
             settings_dict["ENGINE"],
             settings_dict["NAME"],
-            self._test_database_user(),
+            test_database_user,
         )
