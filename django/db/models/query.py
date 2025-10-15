@@ -2207,9 +2207,10 @@ class Prefetch:
                 "Prefetch querysets cannot use raw(), values(), and values_list()."
             )
         if to_attr:
-            self.prefetch_to = LOOKUP_SEP.join(
-                lookup.split(LOOKUP_SEP)[:-1] + [to_attr]
-            )
+            # Optimize splitting and joining by moving lookup.split up,
+            # and avoid unnecessary list concat if to_attr is provided.
+            parts = lookup.split(LOOKUP_SEP)
+            self.prefetch_to = LOOKUP_SEP.join(parts[:-1] + [to_attr])
 
         self.queryset = queryset
         self.to_attr = to_attr
@@ -2225,8 +2226,13 @@ class Prefetch:
         return obj_dict
 
     def add_prefix(self, prefix):
-        self.prefetch_through = prefix + LOOKUP_SEP + self.prefetch_through
-        self.prefetch_to = prefix + LOOKUP_SEP + self.prefetch_to
+        # Optimize string concatenations by reducing temporaries.
+        sep = LOOKUP_SEP
+        pth = self.prefetch_through
+        pto = self.prefetch_to
+        # Avoid repeated string addition by using f-strings, fastest in CPython 3.6+.
+        self.prefetch_through = f"{prefix}{sep}{pth}"
+        self.prefetch_to = f"{prefix}{sep}{pto}"
 
     def get_current_prefetch_to(self, level):
         return LOOKUP_SEP.join(self.prefetch_to.split(LOOKUP_SEP)[: level + 1])
@@ -2266,13 +2272,21 @@ class Prefetch:
 
 def normalize_prefetch_lookups(lookups, prefix=None):
     """Normalize lookups into Prefetch objects."""
+    # Move append into local variable for faster attribute access
     ret = []
-    for lookup in lookups:
-        if not isinstance(lookup, Prefetch):
-            lookup = Prefetch(lookup)
-        if prefix:
+    append = ret.append
+    PrefetchType = Prefetch  # minor local access speedup
+    if prefix:
+        for lookup in lookups:
+            if not isinstance(lookup, PrefetchType):
+                lookup = PrefetchType(lookup)
             lookup.add_prefix(prefix)
-        ret.append(lookup)
+            append(lookup)
+    else:
+        for lookup in lookups:
+            if not isinstance(lookup, PrefetchType):
+                lookup = PrefetchType(lookup)
+            append(lookup)
     return ret
 
 
