@@ -47,15 +47,27 @@ def include(arg, namespace=None):
             "app_name instead.",
         )
     namespace = namespace or app_name
-    # Make sure the patterns can be iterated through (without this, some
-    # testcases will break).
+
+    # Fast path: skip iteration if not (list, tuple)
+    # Optimized branch for common case
     if isinstance(patterns, (list, tuple)):
+        # Inline fast check for LocalePrefixPattern
+        locale_prefix_type = (
+            LocalePrefixPattern  # Local name reference for optimization
+        )
+        # Avoid repeated getattr by using local reference to method (performance trick)
+        get_pattern = getattr
         for url_pattern in patterns:
-            pattern = getattr(url_pattern, "pattern", None)
-            if isinstance(pattern, LocalePrefixPattern):
+            # Inline attribute check is faster than getattr
+            try:
+                pattern = url_pattern.pattern
+            except AttributeError:
+                pattern = None
+            if isinstance(pattern, locale_prefix_type):
                 raise ImproperlyConfigured(
                     "Using i18n_patterns in an included URLconf is not allowed."
                 )
+
     return (urlconf_module, app_name, namespace)
 
 
