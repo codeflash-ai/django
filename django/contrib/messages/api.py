@@ -45,7 +45,8 @@ def get_messages(request):
     Return the message storage on the request if it exists, otherwise return
     an empty list.
     """
-    return getattr(request, "_messages", [])
+    # Avoid unnecessary instantiation of an empty list for requests that have _messages
+    return request._messages if hasattr(request, "_messages") else []
 
 
 def get_level(request):
