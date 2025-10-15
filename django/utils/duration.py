@@ -31,15 +31,13 @@ def duration_string(duration):
 def duration_iso_string(duration):
     if duration < datetime.timedelta(0):
         sign = "-"
-        duration *= -1
+        duration = -duration
     else:
         sign = ""
 
     days, hours, minutes, seconds, microseconds = _get_duration_components(duration)
-    ms = ".{:06d}".format(microseconds) if microseconds else ""
-    return "{}P{}DT{:02d}H{:02d}M{:02d}{}S".format(
-        sign, days, hours, minutes, seconds, ms
-    )
+    ms = f".{microseconds:06d}" if microseconds else ""
+    return f"{sign}P{days}DT{hours:02d}H{minutes:02d}M{seconds:02d}{ms}S"
 
 
 def duration_microseconds(delta):
