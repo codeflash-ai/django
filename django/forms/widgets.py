@@ -487,7 +487,8 @@ class ClearableFileInput(FileInput):
         """
         Return the file object if it has a defined url attribute.
         """
-        if self.is_initial(value):
+        # Inline is_initial logic to avoid function call overhead
+        if value and hasattr(value, "url") and value.url:
             return value
 
     def get_context(self, name, value, attrs):
@@ -572,7 +573,14 @@ class TimeInput(DateTimeBaseInput):
 
 # Defined at module level so that CheckboxInput is picklable (#17976)
 def boolean_check(v):
-    return not (v is False or v is None or v == "")
+    # Checks for False, None, or empty string. Short-circuit order: most likely/faster checks first.
+    if v is None:
+        return False
+    if v is False:
+        return False
+    if v == "":
+        return False
+    return True
 
 
 class CheckboxInput(Input):
