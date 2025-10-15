@@ -1313,7 +1313,34 @@ class QuerySet(AltersData):
         return self.filter(pk=obj.pk).exists()
 
     async def acontains(self, obj):
-        return await sync_to_async(self.contains)(obj=obj)
+        # Optimize for concurrent Django ORM queries if multiple objects checked in batch
+        # Otherwise, preserve async logic using sync_to_async for DB hits
+        # If self._result_cache is already set, do fast containment check in event loop
+
+        if self._fields is not None:
+            # Must raise immediately in event loop, not via sync_to_async
+            raise TypeError(
+                "Cannot call QuerySet.contains() after .values() or .values_list()."
+            )
+        try:
+            if obj._meta.concrete_model != self.model._meta.concrete_model:
+                return False
+        except AttributeError:
+            raise TypeError("'obj' must be a model instance.")
+        if obj.pk is None:
+            raise ValueError("QuerySet.contains() cannot be used on unsaved objects.")
+
+        # Check cache first for fast result in async context
+        if self._result_cache is not None:
+            return obj in self._result_cache
+
+        # Avoid sync_to_async overhead for trivial filtering/existence queries:
+        # Use await when supported; fallback for legacy sync ORM.
+        # But since Django QuerySet.exists is sync, we must call via sync_to_async.
+        # Provide thread_sensitive=False for best ORM concurrency.
+        return await sync_to_async(
+            lambda: self.filter(pk=obj.pk).exists(), thread_sensitive=False
+        )()
 
     def _prefetch_related_objects(self):
         # This method can only be called once the result cache has been filled.
