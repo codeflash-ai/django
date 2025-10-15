@@ -35,6 +35,7 @@ from django.db.models.utils import (
 from django.utils import timezone
 from django.utils.deprecation import RemovedInDjango60Warning
 from django.utils.functional import cached_property, partition
+import asyncio
 
 # The maximum number of results to fetch in a get() query.
 MAX_GET_RESULTS = 21
@@ -1156,10 +1157,54 @@ class QuerySet(AltersData):
         return {getattr(obj, field_name): obj for obj in qs}
 
     async def ain_bulk(self, id_list=None, *, field_name="pk"):
-        return await sync_to_async(self.in_bulk)(
-            id_list=id_list,
-            field_name=field_name,
-        )
+        # Optimize batching retrieval by concurrently fetching batches if needed.
+        if self.query.is_sliced:
+            raise TypeError("Cannot use 'limit' or 'offset' with in_bulk().")
+        opts = self.model._meta
+        unique_fields = [
+            constraint.fields[0]
+            for constraint in opts.total_unique_constraints
+            if len(constraint.fields) == 1
+        ]
+        if (
+            field_name != "pk"
+            and not opts.get_field(field_name).unique
+            and field_name not in unique_fields
+            and self.query.distinct_fields != (field_name,)
+        ):
+            raise ValueError(
+                "in_bulk()'s field_name must be a unique field but %r isn't."
+                % field_name
+            )
+        if id_list is not None:
+            if not id_list:
+                return {}
+            filter_key = "{}__in".format(field_name)
+            batch_size = connections[self.db].features.max_query_params
+            id_list = tuple(id_list)
+            # If batching is required, run all filter queries concurrently for better async performance
+            if batch_size and batch_size < len(id_list):
+                batches = [
+                    id_list[offset : offset + batch_size]
+                    for offset in range(0, len(id_list), batch_size)
+                ]
+                # Use asyncio.gather to collect all batch results concurrently
+                qs_results = await asyncio.gather(
+                    *[
+                        sync_to_async(
+                            lambda batch=batch: list(self.filter(**{filter_key: batch}))
+                        )()
+                        for batch in batches
+                    ]
+                )
+                qs = tuple(obj for batch in qs_results for obj in batch)
+            else:
+                qs = await sync_to_async(
+                    lambda: list(self.filter(**{filter_key: id_list}))
+                )()
+        else:
+            qs = await sync_to_async(lambda: list(self._chain()))()
+        return {getattr(obj, field_name): obj for obj in qs}
 
     def delete(self):
         """Delete the records in the current QuerySet."""
