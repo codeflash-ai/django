@@ -2214,6 +2214,9 @@ class Prefetch:
         self.queryset = queryset
         self.to_attr = to_attr
 
+        # Cache the split 'prefetch_to' to avoid repeated splitting
+        self._prefetch_to_parts = self.prefetch_to.split(LOOKUP_SEP)
+
     def __getstate__(self):
         obj_dict = self.__dict__.copy()
         if self.queryset is not None:
@@ -2229,7 +2232,8 @@ class Prefetch:
         self.prefetch_to = prefix + LOOKUP_SEP + self.prefetch_to
 
     def get_current_prefetch_to(self, level):
-        return LOOKUP_SEP.join(self.prefetch_to.split(LOOKUP_SEP)[: level + 1])
+        # Use the cached split for efficient slicing and joining
+        return LOOKUP_SEP.join(self._prefetch_to_parts[: level + 1])
 
     def get_current_to_attr(self, level):
         parts = self.prefetch_to.split(LOOKUP_SEP)
