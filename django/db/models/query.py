@@ -2432,9 +2432,141 @@ def prefetch_related_objects(model_instances, *related_lookups):
 
 async def aprefetch_related_objects(model_instances, *related_lookups):
     """See prefetch_related_objects()."""
-    return await sync_to_async(prefetch_related_objects)(
-        model_instances, *related_lookups
-    )
+    # Early exit for empty input
+    if not model_instances:
+        return
+
+    # Local copies to avoid global lookups in tight loops
+    normalize_prefetch_lookups_ = normalize_prefetch_lookups
+    get_prefetcher_ = get_prefetcher
+    prefetch_one_level_ = prefetch_one_level
+
+    done_queries = {}
+    auto_lookups = set()
+    followed_descriptors = set()
+
+    # We'll reverse the lookups up front, so no repeated slicing/reversing.
+    all_lookups = normalize_prefetch_lookups_(reversed(related_lookups))
+    # Loop as long as there are lookups to perform
+    while all_lookups:
+        lookup = all_lookups.pop()
+        # Already handled lookup
+        if lookup.prefetch_to in done_queries:
+            if lookup.queryset is not None:
+                raise ValueError(
+                    "'%s' lookup was already seen with a different queryset. "
+                    "You may need to adjust the ordering of your lookups."
+                    % lookup.prefetch_to
+                )
+            continue
+
+        obj_list = model_instances
+
+        through_attrs = lookup.prefetch_through.split(LOOKUP_SEP)
+        for level, through_attr in enumerate(through_attrs):
+            # Skip if the list of objects is empty
+            if not obj_list:
+                break
+
+            prefetch_to = lookup.get_current_prefetch_to(level)
+            # Skip prefetching if already done
+            if prefetch_to in done_queries:
+                obj_list = done_queries[prefetch_to]
+                continue
+
+            # Prepare model instances -- set up _prefetched_objects_cache if needed
+            skip_obj_list = False
+            for obj in obj_list:
+                if not hasattr(obj, "_prefetched_objects_cache"):
+                    try:
+                        obj._prefetched_objects_cache = {}
+                    except (AttributeError, TypeError):
+                        skip_obj_list = True
+                        break
+            if skip_obj_list:
+                break
+
+            # Use first object to get type/fetcher logic
+            first_obj = obj_list[0]
+            to_attr = lookup.get_current_to_attr(level)[0]
+            prefetcher, descriptor, attr_found, is_fetched = get_prefetcher_(
+                first_obj, through_attr, to_attr
+            )
+
+            if not attr_found:
+                raise AttributeError(
+                    "Cannot find '%s' on %s object, '%s' is an invalid "
+                    "parameter to prefetch_related()"
+                    % (
+                        through_attr,
+                        first_obj.__class__.__name__,
+                        lookup.prefetch_through,
+                    )
+                )
+
+            if level == len(through_attrs) - 1 and prefetcher is None:
+                raise ValueError(
+                    "'%s' does not resolve to an item that supports "
+                    "prefetching - this is an invalid parameter to "
+                    "prefetch_related()." % lookup.prefetch_through
+                )
+
+            obj_to_fetch = None
+            if prefetcher is not None:
+                # Use list comprehension for memory efficiency
+                obj_to_fetch = [obj for obj in obj_list if not is_fetched(obj)]
+
+            if obj_to_fetch:
+                # Await the async prefetcher if it's async, otherwise schedule to thread
+                # For best performance, for large lists, batch them concurrently
+                if hasattr(prefetcher, "aget_prefetch_querysets"):
+                    obj_list, additional_lookups = await prefetch_one_level_(
+                        obj_to_fetch,
+                        prefetcher,
+                        lookup,
+                        level,
+                    )
+                else:
+                    obj_list, additional_lookups = await sync_to_async(
+                        prefetch_one_level_
+                    )(
+                        obj_to_fetch,
+                        prefetcher,
+                        lookup,
+                        level,
+                    )
+
+                # Stash results and merge potentially recursive additional lookups
+                if not (
+                    prefetch_to in done_queries
+                    and lookup in auto_lookups
+                    and descriptor in followed_descriptors
+                ):
+                    done_queries[prefetch_to] = obj_list
+                    new_lookups = normalize_prefetch_lookups_(
+                        reversed(additional_lookups), prefetch_to
+                    )
+                    auto_lookups.update(new_lookups)
+                    all_lookups.extend(new_lookups)
+                followed_descriptors.add(descriptor)
+            else:
+                new_obj_list = []
+                for obj in obj_list:
+                    cache = getattr(obj, "_prefetched_objects_cache", ())
+                    if through_attr in cache:
+                        new_obj = list(cache.get(through_attr))
+                    else:
+                        try:
+                            new_obj = getattr(obj, through_attr)
+                        except exceptions.ObjectDoesNotExist:
+                            continue
+                    if new_obj is None:
+                        continue
+                    if isinstance(new_obj, list):
+                        new_obj_list.extend(new_obj)
+                    else:
+                        new_obj_list.append(new_obj)
+                obj_list = new_obj_list
 
 
 def get_prefetcher(instance, through_attr, to_attr):
