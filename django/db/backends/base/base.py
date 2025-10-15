@@ -292,8 +292,23 @@ class BaseDatabaseWrapper:
         return wrapped_cursor
 
     def _cursor(self, name=None):
-        self.close_if_health_check_failed()
-        self.ensure_connection()
+        if (
+            self.connection is not None
+            and self.health_check_enabled
+            and not self.health_check_done
+        ):
+            if not self.is_usable():
+                self.close()
+            self.health_check_done = True
+        if self.connection is None:
+            if self.in_atomic_block and self.closed_in_transaction:
+                from django.db.utils import ProgrammingError
+
+                raise ProgrammingError(
+                    "Cannot open a new connection in an atomic block."
+                )
+            with self.wrap_database_errors:
+                self.connect()
         with self.wrap_database_errors:
             return self._prepare_cursor(self.create_cursor(name))
 
