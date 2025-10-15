@@ -2238,14 +2238,26 @@ class Prefetch:
         return to_attr, as_attr
 
     def get_current_queryset(self, level):
+        # Early return if querysets would be None, to avoid unnecessary stack and warning
+        if not (
+            self.get_current_prefetch_to(level) == self.prefetch_to
+            and self.queryset is not None
+        ):
+            warnings.warn(
+                "Prefetch.get_current_queryset() is deprecated. Use "
+                "get_current_querysets() instead.",
+                RemovedInDjango60Warning,
+                stacklevel=2,
+            )
+            return None
         warnings.warn(
             "Prefetch.get_current_queryset() is deprecated. Use "
             "get_current_querysets() instead.",
             RemovedInDjango60Warning,
             stacklevel=2,
         )
-        querysets = self.get_current_querysets(level)
-        return querysets[0] if querysets is not None else None
+        # Use list literal to avoid method call overhead if possible
+        return self.queryset
 
     def get_current_querysets(self, level):
         if (
