@@ -37,7 +37,7 @@ class FieldFile(File, AltersData):
     # be checked for here.
 
     def _require_file(self):
-        if not self:
+        if not self.name:
             raise ValueError(
                 "The '%s' attribute has no file associated with it." % self.field.name
             )
@@ -75,10 +75,11 @@ class FieldFile(File, AltersData):
 
     def open(self, mode="rb"):
         self._require_file()
-        if getattr(self, "_file", None) is None:
+        _file = getattr(self, "_file", None)
+        if _file is None:
             self.file = self.storage.open(self.name, mode)
         else:
-            self.file.open(mode)
+            _file.open(mode)
         return self
 
     # open() doesn't alter the file's contents, but it does reset the pointer
