@@ -5,7 +5,7 @@ The main QuerySet implementation. This provides the public API for the ORM.
 import copy
 import operator
 import warnings
-from itertools import chain, islice
+from itertools import islice
 
 from asgiref.sync import sync_to_async
 
@@ -1637,57 +1637,75 @@ class QuerySet(AltersData):
         return self._annotate(args, kwargs, select=False)
 
     def _annotate(self, args, kwargs, select=True):
+        # Minor optimization: reduce chained tuple/concatenation allocation
+        # args is a tuple, kwargs.values() is a view; we want to check all with the static check
         self._validate_values_are_expressions(
-            args + tuple(kwargs.values()), method_name="annotate"
+            (*args, *kwargs.values()), method_name="annotate"
         )
         annotations = {}
+        # Optimize: combine default_alias checks and annotation collection in a single loop
+        default_aliases = set()
         for arg in args:
-            # The default_alias property may raise a TypeError.
             try:
-                if arg.default_alias in kwargs:
-                    raise ValueError(
-                        "The named annotation '%s' conflicts with the "
-                        "default name for another annotation." % arg.default_alias
-                    )
+                default_alias = arg.default_alias
             except TypeError:
                 raise TypeError("Complex annotations require an alias")
-            annotations[arg.default_alias] = arg
+            if default_alias in kwargs:
+                raise ValueError(
+                    "The named annotation '%s' conflicts with the "
+                    "default name for another annotation." % default_alias
+                )
+            annotations[default_alias] = arg
+            default_aliases.add(default_alias)
+        # Use efficient dict update (does not re-check for key conflicts, just adds)
         annotations.update(kwargs)
 
         clone = self._chain()
         names = self._fields
+        # Optimize: build names set with set comprehension, no repeated inner tuple
         if names is None:
-            names = set(
-                chain.from_iterable(
-                    (
-                        (field.name, field.attname)
-                        if hasattr(field, "attname")
-                        else (field.name,)
-                    )
-                    for field in self.model._meta.get_fields()
-                )
-            )
+            # Avoid function call and chained iterable building; only build name set once
+            names = set()
+            get_fields = self.model._meta.get_fields
+            for field in get_fields():
+                if hasattr(field, "attname"):
+                    names.add(field.name)
+                    names.add(field.attname)
+                else:
+                    names.add(field.name)
 
-        for alias, annotation in annotations.items():
+        # Check for annotation/field conflicts efficiently
+        # Only need to check 'annotations' keys
+        # Optimize conflict checks: use 'names' set membership test directly
+        for alias in annotations:
             if alias in names:
                 raise ValueError(
                     "The annotation '%s' conflicts with a field on "
                     "the model." % alias
                 )
+
+        # Split FilteredRelation handling from annotation addition for small perf benefit
+        query = clone.query
+        for alias, annotation in annotations.items():
             if isinstance(annotation, FilteredRelation):
-                clone.query.add_filtered_relation(annotation, alias)
+                query.add_filtered_relation(annotation, alias)
             else:
-                clone.query.add_annotation(
-                    annotation,
-                    alias,
-                    select=select,
-                )
-        for alias, annotation in clone.query.annotations.items():
-            if alias in annotations and annotation.contains_aggregate:
+                query.add_annotation(annotation, alias, select=select)
+
+        # Optimize group_by determination by scanning only possible aggregations with a break
+        # The logic is correct as-is, but we can optimize the lookup by using annotations dict directly
+        # If there is any annotation in 'annotations' and clone.query.annotations that is an aggregate, then set group_by
+        # Minor micro-opt: use items() directly, so no unnecessary key/lookup inside loop
+        q_annotations = query.annotations
+        # Only scan relevant items
+        for alias, annotation in q_annotations.items():
+            if alias in annotations and getattr(
+                annotation, "contains_aggregate", False
+            ):
                 if clone._fields is None:
-                    clone.query.group_by = True
+                    query.group_by = True
                 else:
-                    clone.query.set_group_by()
+                    query.set_group_by()
                 break
 
         return clone
@@ -2003,10 +2021,12 @@ class QuerySet(AltersData):
             )
 
     def _not_support_combined_queries(self, operation_name):
-        if self.query.combinator:
+        # Use direct attribute access to reduce overhead, since .query is a property
+        query = self.query
+        if query.combinator:
             raise NotSupportedError(
                 "Calling QuerySet.%s() after %s() is not supported."
-                % (operation_name, self.query.combinator)
+                % (operation_name, query.combinator)
             )
 
     def _check_operator_queryset(self, other, operator_):
