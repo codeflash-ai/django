@@ -21,13 +21,23 @@ def import_string(dotted_path):
     Import a dotted module path and return the attribute/class designated by the
     last name in the path. Raise ImportError if the import failed.
     """
+    cache = getattr(import_string, "_cache", None)
+    if cache is None:
+        cache = {}
+        setattr(import_string, "_cache", cache)
+
+    if dotted_path in cache:
+        return cache[dotted_path]
+
     try:
         module_path, class_name = dotted_path.rsplit(".", 1)
     except ValueError as err:
         raise ImportError("%s doesn't look like a module path" % dotted_path) from err
 
     try:
-        return cached_import(module_path, class_name)
+        result = cached_import(module_path, class_name)
+        cache[dotted_path] = result
+        return result
     except AttributeError as err:
         raise ImportError(
             'Module "%s" does not define a "%s" attribute/class'
