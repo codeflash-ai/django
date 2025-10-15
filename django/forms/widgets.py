@@ -417,20 +417,21 @@ class FileInput(Input):
     template_name = "django/forms/widgets/file.html"
 
     def __init__(self, attrs=None):
-        if (
-            attrs is not None
-            and not self.allow_multiple_selected
-            and attrs.get("multiple", False)
-        ):
-            raise ValueError(
-                "%s doesn't support uploading multiple files."
-                % self.__class__.__qualname__
-            )
-        if self.allow_multiple_selected:
-            if attrs is None:
-                attrs = {"multiple": True}
-            else:
-                attrs.setdefault("multiple", True)
+        allow_multiple_selected = getattr(self, "allow_multiple_selected", False)
+        # Fast path for the common case: attrs is None or doesn't ask for multiple, and allow_multiple_selected is False
+        if attrs is not None:
+            if not allow_multiple_selected and attrs.get("multiple", False):
+                raise ValueError(
+                    "%s doesn't support uploading multiple files."
+                    % self.__class__.__qualname__
+                )
+            if allow_multiple_selected:
+                # Avoid unnecessary setdefault when already set
+                if "multiple" not in attrs:
+                    attrs = attrs.copy()
+                    attrs["multiple"] = True
+        elif allow_multiple_selected:
+            attrs = {"multiple": True}
         super().__init__(attrs)
 
     def format_value(self, value):
@@ -438,14 +439,13 @@ class FileInput(Input):
         return
 
     def value_from_datadict(self, data, files, name):
-        "File widgets take data from FILES, not POST"
-        getter = files.get
+        """File widgets take data from FILES, not POST"""
         if self.allow_multiple_selected:
-            try:
-                getter = files.getlist
-            except AttributeError:
-                pass
-        return getter(name)
+            # Avoid try/except by checking first if getlist exists
+            getter = getattr(files, "getlist", None)
+            if getter is not None:
+                return getter(name)
+        return files.get(name)
 
     def value_omitted_from_data(self, data, files, name):
         return name not in files
@@ -487,7 +487,8 @@ class ClearableFileInput(FileInput):
         """
         Return the file object if it has a defined url attribute.
         """
-        if self.is_initial(value):
+        # Inline is_initial logic to avoid function call overhead
+        if value and hasattr(value, "url") and value.url:
             return value
 
     def get_context(self, name, value, attrs):
@@ -510,10 +511,13 @@ class ClearableFileInput(FileInput):
 
     def value_from_datadict(self, data, files, name):
         upload = super().value_from_datadict(data, files, name)
-        self.checked = self.clear_checkbox_name(name) in data
-        if not self.is_required and CheckboxInput().value_from_datadict(
-            data, files, self.clear_checkbox_name(name)
-        ):
+        checkbox_name = self.clear_checkbox_name(name)
+        self.checked = checkbox_name in data
+        # Save result of clear-checkbox lookup to avoid recomputation
+        clear_checked = not self.is_required and CheckboxInput().value_from_datadict(
+            data, files, checkbox_name
+        )
+        if clear_checked:
             if upload:
                 # If the user contradicts themselves (uploads a new file AND
                 # checks the "clear" checkbox), we return a unique marker
@@ -602,10 +606,13 @@ class CheckboxInput(Input):
             # send results for unselected checkboxes.
             return False
         value = data.get(name)
-        # Translate true and false strings to boolean values.
-        values = {"true": True, "false": False}
+        # Use direct lowercase comparison instead of building a dict and lower only if needed
         if isinstance(value, str):
-            value = values.get(value.lower(), value)
+            lowered = value.lower()
+            if lowered == "true":
+                return True
+            if lowered == "false":
+                return False
         return bool(value)
 
     def value_omitted_from_data(self, data, files, name):
