@@ -133,44 +133,59 @@ class Serializer(base.Serializer):
         """
         if field.remote_field.through._meta.auto_created:
             self._start_relational_field(field)
-            if self.use_natural_foreign_keys and hasattr(
-                field.remote_field.model, "natural_key"
-            ):
+
+            remote_model = field.remote_field.model
+            field_name = field.name
+
+            use_natural_fk = self.use_natural_foreign_keys and hasattr(
+                remote_model, "natural_key"
+            )
+
+            # Optimize: pull frequently used resources outside the loop
+            xml = self.xml
+
+            if use_natural_fk:
                 # If the objects in the m2m have a natural key, use it
                 def handle_m2m(value):
                     natural = value.natural_key()
-                    # Iterable natural keys are rolled out as subelements
-                    self.xml.startElement("object", {})
+                    xml.startElement("object", {})
                     for key_value in natural:
-                        self.xml.startElement("natural", {})
-                        self.xml.characters(str(key_value))
-                        self.xml.endElement("natural")
-                    self.xml.endElement("object")
+                        xml.startElement("natural", {})
+                        xml.characters(str(key_value))
+                        xml.endElement("natural")
+                    xml.endElement("object")
 
-                def queryset_iterator(obj, field):
-                    return getattr(obj, field.name).iterator()
+                def queryset_iterator():
+                    # Avoid function call overhead for objs with natural_key
+                    return getattr(obj, field_name).iterator()
 
             else:
 
                 def handle_m2m(value):
-                    self.xml.addQuickElement("object", attrs={"pk": str(value.pk)})
+                    xml.addQuickElement("object", attrs={"pk": str(value.pk)})
 
-                def queryset_iterator(obj, field):
+                def queryset_iterator():
+                    # Avoid repeated getattr and method lookups
                     return (
-                        getattr(obj, field.name)
+                        getattr(obj, field_name)
                         .select_related(None)
                         .only("pk")
                         .iterator()
                     )
 
-            m2m_iter = getattr(obj, "_prefetched_objects_cache", {}).get(
-                field.name,
-                queryset_iterator(obj, field),
-            )
-            for relobj in m2m_iter:
+            # Use a local variable to avoid repeated dict lookups
+            prefetched_cache = getattr(obj, "_prefetched_objects_cache", None)
+            if prefetched_cache and field_name in prefetched_cache:
+                m2m_iter = prefetched_cache[field_name]
+            else:
+                m2m_iter = queryset_iterator()
+
+            # Convert m2m_iter to an iterator only if it's not already (for memory efficiency)
+            it = iter(m2m_iter)
+            for relobj in it:
                 handle_m2m(relobj)
 
-            self.xml.endElement("field")
+            xml.endElement("field")
 
     def _start_relational_field(self, field):
         """Output the <field> element for relational fields."""
