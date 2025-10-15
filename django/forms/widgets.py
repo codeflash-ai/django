@@ -22,6 +22,22 @@ from django.utils.translation import gettext_lazy as _
 
 from .renderers import get_default_renderer
 
+_NULL_BOOLEAN_CHOICES = (
+    ("unknown", _("Unknown")),
+    ("true", _("Yes")),
+    ("false", _("No")),
+)
+
+_NULL_BOOLEAN_VALUE_MAP = {
+    True: "true",
+    False: "false",
+    "true": "true",
+    "false": "false",
+    # For backwards compatibility with Django < 2.2.
+    "2": "true",
+    "3": "false",
+}
+
 __all__ = (
     "Media",
     "MediaDefiningClass",
@@ -487,7 +503,8 @@ class ClearableFileInput(FileInput):
         """
         Return the file object if it has a defined url attribute.
         """
-        if self.is_initial(value):
+        # Inline is_initial logic to avoid function call overhead
+        if value and hasattr(value, "url") and value.url:
             return value
 
     def get_context(self, name, value, attrs):
@@ -796,26 +813,10 @@ class NullBooleanSelect(Select):
     """
 
     def __init__(self, attrs=None):
-        choices = (
-            ("unknown", _("Unknown")),
-            ("true", _("Yes")),
-            ("false", _("No")),
-        )
-        super().__init__(attrs, choices)
+        super().__init__(attrs, _NULL_BOOLEAN_CHOICES)
 
     def format_value(self, value):
-        try:
-            return {
-                True: "true",
-                False: "false",
-                "true": "true",
-                "false": "false",
-                # For backwards compatibility with Django < 2.2.
-                "2": "true",
-                "3": "false",
-            }[value]
-        except KeyError:
-            return "unknown"
+        return _NULL_BOOLEAN_VALUE_MAP.get(value, "unknown")
 
     def value_from_datadict(self, data, files, name):
         value = data.get(name)
