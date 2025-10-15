@@ -172,11 +172,14 @@ class RedisCache(BaseCache):
         return self._class(self._servers, **self._options)
 
     def get_backend_timeout(self, timeout=DEFAULT_TIMEOUT):
-        if timeout == DEFAULT_TIMEOUT:
+        if timeout is DEFAULT_TIMEOUT:
             timeout = self.default_timeout
         # The key will be made persistent if None used as a timeout.
         # Non-positive values will cause the key to be deleted.
-        return None if timeout is None else max(0, int(timeout))
+        if timeout is None:
+            return None
+        timeout_int = int(timeout)
+        return 0 if timeout_int <= 0 else timeout_int
 
     def add(self, key, value, timeout=DEFAULT_TIMEOUT, version=None):
         key = self.make_and_validate_key(key, version=version)
