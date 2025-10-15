@@ -83,12 +83,15 @@ class Migration:
         operations applied to it. Preserve the original object state by
         default and return a mutated state from a copy.
         """
+        operations = self.operations
+        app_label = self.app_label
+
         new_state = project_state
         if preserve:
             new_state = project_state.clone()
 
-        for operation in self.operations:
-            operation.state_forwards(self.app_label, new_state)
+        for operation in operations:
+            operation.state_forwards(app_label, new_state)
         return new_state
 
     def apply(self, project_state, schema_editor, collect_sql=False):
