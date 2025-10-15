@@ -149,24 +149,29 @@ class Migration:
         2. The operations are applied in reverse order using the states
            recorded in step 1.
         """
-        # Construct all the intermediate states we need for a reverse migration
+        # Phase 1: construct the list of reverse application steps in reverse order for efficiency
         to_run = []
         new_state = project_state
-        # Phase 1
-        for operation in self.operations:
+        app_label = self.app_label
+        operations = self.operations
+
+        # Pre-bind frequently accessed attributes/methods
+        to_run_append = to_run.append
+        # Instead of insert(0, ...), we process reversed.
+        for operation in reversed(operations):
             # If it's irreversible, error out
             if not operation.reversible:
                 raise IrreversibleError(
                     "Operation %s in %s is not reversible" % (operation, self)
                 )
-            # Preserve new state from previous run to not tamper the same state
-            # over all operations
-            new_state = new_state.clone()
+            # Clone states in efficient order
+            # new_state is the 'after' state for this operation, so old_state is 'before'
             old_state = new_state.clone()
-            operation.state_forwards(self.app_label, new_state)
-            to_run.insert(0, (operation, old_state, new_state))
+            operation.state_forwards(app_label, new_state)
+            to_run_append((operation, old_state, new_state))
+        # Now process in natural reverse-op order (to_run is already in reverse)
+        atomic_attr = getattr(self, "atomic", True)  # atomic may be on class
 
-        # Phase 2
         for operation, to_state, from_state in to_run:
             if collect_sql:
                 schema_editor.collected_sql.append("--")
@@ -179,19 +184,19 @@ class Migration:
                     continue
                 collected_sql_before = len(schema_editor.collected_sql)
             atomic_operation = operation.atomic or (
-                self.atomic and operation.atomic is not False
+                atomic_attr and operation.atomic is not False
             )
             if not schema_editor.atomic_migration and atomic_operation:
                 # Force a transaction on a non-transactional-DDL backend or an
                 # atomic operation inside a non-atomic migration.
                 with atomic(schema_editor.connection.alias):
                     operation.database_backwards(
-                        self.app_label, schema_editor, from_state, to_state
+                        app_label, schema_editor, from_state, to_state
                     )
             else:
                 # Normal behaviour
                 operation.database_backwards(
-                    self.app_label, schema_editor, from_state, to_state
+                    app_label, schema_editor, from_state, to_state
                 )
             if collect_sql and collected_sql_before == len(schema_editor.collected_sql):
                 schema_editor.collected_sql.append("-- (no-op)")
