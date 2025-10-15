@@ -25,6 +25,9 @@ from django.core.management.base import (
 from django.core.management.color import color_style
 from django.utils import autoreload
 
+# Use a cache to avoid repeated expensive imports for the same module
+_command_module_cache: dict[tuple[str, str], object] = {}
+
 
 def find_commands(management_dir):
     """
@@ -45,7 +48,12 @@ def load_command_class(app_name, name):
     class instance. Allow all errors raised by the import process
     (ImportError, AttributeError) to propagate.
     """
-    module = import_module("%s.management.commands.%s" % (app_name, name))
+    key = (app_name, name)
+    try:
+        module = _command_module_cache[key]
+    except KeyError:
+        module = import_module(f"{app_name}.management.commands.{name}")
+        _command_module_cache[key] = module
     return module.Command()
 
 
