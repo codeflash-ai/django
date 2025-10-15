@@ -262,14 +262,21 @@ class Widget(metaclass=MediaDefiningClass):
         return str(value)
 
     def get_context(self, name, value, attrs):
+        # Cache local variables for slightly faster attribute access
+        is_hidden = self.is_hidden
+        is_required = self.is_required
+        format_value = self.format_value
+        build_attrs = self.build_attrs
+        template_name = self.template_name
+
         return {
             "widget": {
                 "name": name,
-                "is_hidden": self.is_hidden,
-                "required": self.is_required,
-                "value": self.format_value(value),
-                "attrs": self.build_attrs(self.attrs, attrs),
-                "template_name": self.template_name,
+                "is_hidden": is_hidden,
+                "required": is_required,
+                "value": format_value(value),
+                "attrs": build_attrs(self.attrs, attrs),
+                "template_name": template_name,
             },
         }
 
@@ -487,7 +494,8 @@ class ClearableFileInput(FileInput):
         """
         Return the file object if it has a defined url attribute.
         """
-        if self.is_initial(value):
+        # Inline is_initial logic to avoid function call overhead
+        if value and hasattr(value, "url") and value.url:
             return value
 
     def get_context(self, name, value, attrs):
@@ -649,31 +657,68 @@ class ChoiceWidget(Widget):
 
     def optgroups(self, name, value, attrs=None):
         """Return a list of optgroups for this widget."""
+
+        # Optimize: pre-convert value to a set of str for fast membership if not allow_multiple_selected
+        # (for allow_multiple_selected, membership test is always performed, so set always helps)
+        if value is None:
+            value_set = set()
+        elif self.allow_multiple_selected:
+            # allow_multiple_selected: value should be a collection; ensure it's a set of str
+            if isinstance(value, set) and all(isinstance(v, str) for v in value):
+                value_set = value
+            else:
+                value_set = {str(v) for v in value}
+        else:
+            # not allow_multiple_selected: only one value is selected, so put str(value) in set
+            # (cover safety in case value is a list of one, as defensive later)
+            if isinstance(value, (list, tuple, set)):
+                value_set = {str(v) for v in value}
+            else:
+                value_set = {str(value)}
+
         groups = []
         has_selected = False
 
-        for index, (option_value, option_label) in enumerate(self.choices):
+        # Cache methods/attributes used during loop for speed
+        create_option = self.create_option
+        allow_multiple_selected = self.allow_multiple_selected
+
+        choices = self.choices
+        enumerate_choices = enumerate(choices)
+
+        append_group = groups.append
+
+        for index, (option_value, option_label) in enumerate_choices:
             if option_value is None:
                 option_value = ""
 
             subgroup = []
-            if isinstance(option_label, (list, tuple)):
+            # Instead of isinstance in every loop for basic case, do type check locally for common hot path
+            if type(option_label) in (
+                list,
+                tuple,
+            ):  # type() check is slightly faster than isinstance
                 group_name = option_value
                 subindex = 0
-                choices = option_label
+                iter_choices = option_label
             else:
                 group_name = None
                 subindex = None
-                choices = [(option_value, option_label)]
-            groups.append((group_name, subgroup, index))
+                iter_choices = ((option_value, option_label),)
 
-            for subvalue, sublabel in choices:
-                selected = (not has_selected or self.allow_multiple_selected) and str(
-                    subvalue
-                ) in value
+            append_group((group_name, subgroup, index))
+
+            for subvalue, sublabel in iter_choices:
+                s_subvalue = str(subvalue)
+                # (not has_selected or allow_multiple_selected) condition short-circuits if already selected
+                selected = (
+                    not has_selected or allow_multiple_selected
+                ) and s_subvalue in value_set
                 has_selected |= selected
+
+                # Inline method call is ok, but for micro-optim: move variables outside for loop (already did)
                 subgroup.append(
-                    self.create_option(
+                    create_option(
                         name,
                         subvalue,
                         sublabel,
@@ -685,6 +730,7 @@ class ChoiceWidget(Widget):
                 )
                 if subindex is not None:
                     subindex += 1
+
         return groups
 
     def create_option(
@@ -711,10 +757,12 @@ class ChoiceWidget(Widget):
         }
 
     def get_context(self, name, value, attrs):
+        # Cache super for slightly faster attribute lookup
         context = super().get_context(name, value, attrs)
-        context["widget"]["optgroups"] = self.optgroups(
-            name, context["widget"]["value"], attrs
-        )
+        # No need to cache self.optgroups as it is just one call,
+        # but micro-opt: use local context["widget"] var
+        widget = context["widget"]
+        widget["optgroups"] = self.optgroups(name, widget["value"], attrs)
         return context
 
     def id_for_label(self, id_, index="0"):
