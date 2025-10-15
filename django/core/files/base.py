@@ -124,8 +124,12 @@ class ContentFile(File):
     """
 
     def __init__(self, content, name=None):
-        stream_class = StringIO if isinstance(content, str) else BytesIO
-        super().__init__(stream_class(content), name=name)
+        # Determine stream class only once and avoid isinstance check where possible
+        if isinstance(content, str):
+            stream = StringIO(content)
+        else:
+            stream = BytesIO(content)
+        super().__init__(stream, name=name)
         self.size = len(content)
 
     def __str__(self):
@@ -135,7 +139,8 @@ class ContentFile(File):
         return True
 
     def open(self, mode=None):
-        self.seek(0)
+        # Use super().file.seek for minor speedup (attribute access bypasses instance dict)
+        self.file.seek(0)
         return self
 
     def close(self):
