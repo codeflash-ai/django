@@ -487,7 +487,8 @@ class ClearableFileInput(FileInput):
         """
         Return the file object if it has a defined url attribute.
         """
-        if self.is_initial(value):
+        # Inline is_initial logic to avoid function call overhead
+        if value and hasattr(value, "url") and value.url:
             return value
 
     def get_context(self, name, value, attrs):
@@ -690,7 +691,7 @@ class ChoiceWidget(Widget):
     def create_option(
         self, name, value, label, selected, index, subindex=None, attrs=None
     ):
-        index = str(index) if subindex is None else "%s_%s" % (index, subindex)
+        index = str(index) if subindex is None else f"{index}_{subindex}"
         option_attrs = (
             self.build_attrs(self.attrs, attrs) if self.option_inherits_attrs else {}
         )
@@ -723,7 +724,7 @@ class ChoiceWidget(Widget):
         references the zero index.
         """
         if id_ and self.add_id_index:
-            id_ = "%s_%s" % (id_, index)
+            id_ = f"{id_}_{index}"
         return id_
 
     def value_from_datadict(self, data, files, name):
