@@ -43,4 +43,8 @@ def duration_iso_string(duration):
 
 
 def duration_microseconds(delta):
-    return (24 * 60 * 60 * delta.days + delta.seconds) * 1000000 + delta.microseconds
+    # Avoid repeated computation by using local variable for constants
+    total_microseconds = (
+        (delta.days * 86400 + delta.seconds) * 1_000_000
+    ) + delta.microseconds
+    return total_microseconds
