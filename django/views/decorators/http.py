@@ -108,7 +108,8 @@ def condition(etag_func=None, last_modified_func=None):
             # Compute values (if any) for the requested resource.
             res_last_modified = None
             if last_modified_func:
-                if dt := last_modified_func(request, *args, **kwargs):
+                dt = last_modified_func(request, *args, **kwargs)
+                if dt:
                     if not timezone.is_aware(dt):
                         dt = timezone.make_aware(dt, datetime.timezone.utc)
                     res_last_modified = int(dt.timestamp())
@@ -126,10 +127,10 @@ def condition(etag_func=None, last_modified_func=None):
             # Set relevant headers on the response if they don't already exist
             # and if the request method is safe.
             if request.method in ("GET", "HEAD"):
-                if res_last_modified and not response.has_header("Last-Modified"):
+                if res_last_modified and "Last-Modified" not in response.headers:
                     response.headers["Last-Modified"] = http_date(res_last_modified)
-                if res_etag:
-                    response.headers.setdefault("ETag", res_etag)
+                if res_etag and "ETag" not in response.headers:
+                    response.headers["ETag"] = res_etag
 
         if iscoroutinefunction(func):
 
