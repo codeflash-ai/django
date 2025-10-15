@@ -59,8 +59,7 @@ def get_callable(lookup_view):
 def get_mod_func(callback):
     # Convert 'django.views.news.stories.story_detail' to
     # ['django.views.news.stories', 'story_detail']
-    try:
-        dot = callback.rindex(".")
-    except ValueError:
+    dot = callback.rfind(".")
+    if dot == -1:
         return callback, ""
     return callback[:dot], callback[dot + 1 :]
