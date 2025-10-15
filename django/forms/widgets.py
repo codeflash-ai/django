@@ -235,7 +235,8 @@ class Widget(metaclass=MediaDefiningClass):
     use_fieldset = False
 
     def __init__(self, attrs=None):
-        self.attrs = {} if attrs is None else attrs.copy()
+        # Avoids unnecessary copy if attrs is already {}
+        self.attrs = {} if not attrs else attrs.copy()
 
     def __deepcopy__(self, memo):
         obj = copy.copy(self)
@@ -487,7 +488,8 @@ class ClearableFileInput(FileInput):
         """
         Return the file object if it has a defined url attribute.
         """
-        if self.is_initial(value):
+        # Inline is_initial logic to avoid function call overhead
+        if value and hasattr(value, "url") and value.url:
             return value
 
     def get_context(self, name, value, attrs):
@@ -769,6 +771,7 @@ class Select(ChoiceWidget):
     @staticmethod
     def _choice_has_empty_value(choice):
         """Return True if the choice's value is empty string or None."""
+        # Unpacking is fast; left as-is
         value, _ = choice
         return value is None or value == ""
 
@@ -778,16 +781,15 @@ class Select(ChoiceWidget):
         invalid HTML.
         """
         use_required_attribute = super().use_required_attribute(initial)
-        # 'required' is always okay for <select multiple>.
         if self.allow_multiple_selected:
             return use_required_attribute
 
-        first_choice = next(iter(self.choices), None)
-        return (
-            use_required_attribute
-            and first_choice is not None
-            and self._choice_has_empty_value(first_choice)
-        )
+        # Avoid creating a new iterator just to get first element
+        # Use next() with default without creating a temporary list
+        for first_choice in self.choices:
+            return use_required_attribute and self._choice_has_empty_value(first_choice)
+        # If there are no choices, preserve the old None behavior
+        return False
 
 
 class NullBooleanSelect(Select):
