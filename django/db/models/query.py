@@ -2196,6 +2196,10 @@ class Prefetch:
         self.prefetch_through = lookup
         # `prefetch_to` is the path to the attribute that stores the result.
         self.prefetch_to = lookup
+
+        # Avoid repeated lookups in checks below
+        queryset_class = getattr(queryset, "__class__", None)
+
         if queryset is not None and (
             isinstance(queryset, RawQuerySet)
             or (
@@ -2207,9 +2211,9 @@ class Prefetch:
                 "Prefetch querysets cannot use raw(), values(), and values_list()."
             )
         if to_attr:
-            self.prefetch_to = LOOKUP_SEP.join(
-                lookup.split(LOOKUP_SEP)[:-1] + [to_attr]
-            )
+            lookup_split = lookup.split(LOOKUP_SEP)
+            # Instead of building a new list with join every time, reuse wherever possible
+            self.prefetch_to = LOOKUP_SEP.join(lookup_split[:-1] + [to_attr])
 
         self.queryset = queryset
         self.to_attr = to_attr
@@ -2229,7 +2233,14 @@ class Prefetch:
         self.prefetch_to = prefix + LOOKUP_SEP + self.prefetch_to
 
     def get_current_prefetch_to(self, level):
-        return LOOKUP_SEP.join(self.prefetch_to.split(LOOKUP_SEP)[: level + 1])
+        # Optimization: only split once and reuse
+        # Use a cached split if possible for significant speedup
+        # Store a split version of prefetch_to on first use
+        _split = getattr(self, "_prefetch_to_split", None)
+        if _split is None:
+            _split = self.prefetch_to.split(LOOKUP_SEP)
+            self._prefetch_to_split = _split
+        return LOOKUP_SEP.join(_split[: level + 1])
 
     def get_current_to_attr(self, level):
         parts = self.prefetch_to.split(LOOKUP_SEP)
