@@ -13,6 +13,10 @@ from django.views.decorators.debug import sensitive_variables
 
 from .signals import user_logged_in, user_logged_out, user_login_failed
 
+SENSITIVE_CREDENTIALS = re.compile("api|token|key|secret|password|signature", re.I)
+
+CLEANSED_SUBSTITUTE = "********************"
+
 SESSION_KEY = "_auth_user_id"
 BACKEND_SESSION_KEY = "_auth_user_backend"
 HASH_SESSION_KEY = "_auth_user_hash"
@@ -48,11 +52,13 @@ def _clean_credentials(credentials):
 
     Not comprehensive - intended for user_login_failed signal
     """
-    SENSITIVE_CREDENTIALS = re.compile("api|token|key|secret|password|signature", re.I)
-    CLEANSED_SUBSTITUTE = "********************"
+    # Avoid repeated attribute lookup and regex compilation:
+    regex_search = SENSITIVE_CREDENTIALS.search
+    substitute = CLEANSED_SUBSTITUTE
+    # Use items() to avoid repeated key lookup, as we only modify value.
     for key in credentials:
-        if SENSITIVE_CREDENTIALS.search(key):
-            credentials[key] = CLEANSED_SUBSTITUTE
+        if regex_search(key):
+            credentials[key] = substitute
     return credentials
 
 
