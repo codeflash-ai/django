@@ -116,14 +116,20 @@ def url_params_from_lookup_dict(lookups):
     """
     params = {}
     if lookups and hasattr(lookups, "items"):
-        for k, v in lookups.items():
+        items = lookups.items()
+        for k, v in items:
+            # Inline the most performance-sensitive cases and branch order for frequency
             if callable(v):
                 v = v()
-            if isinstance(v, (tuple, list)):
-                v = ",".join(str(x) for x in v)
-            elif isinstance(v, bool):
-                v = ("0", "1")[v]
+            # Cache type information for isinstance checks
+            v_type = type(v)
+            if v_type is tuple or v_type is list:
+                # Use list comprehension and map for slightly faster conversion
+                v = ",".join(map(str, v))
+            elif v_type is bool:
+                v = "1" if v else "0"
             else:
+                # str conversion for all other types (int, str, None, etc)
                 v = str(v)
             params[k] = v
     return params
