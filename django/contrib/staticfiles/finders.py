@@ -246,17 +246,31 @@ class BaseStorageFinder(BaseFinder):
         Look for files in the default file storage, if it's local.
         """
         try:
-            self.storage.path("")
+            storage_path = self.storage.path("")
         except NotImplementedError:
-            pass
-        else:
-            if self.storage.location not in searched_locations:
-                searched_locations.append(self.storage.location)
-            if self.storage.exists(path):
-                match = self.storage.path(path)
-                if all:
-                    match = [match]
-                return match
+            return []
+
+        # Optimize membership check in searched_locations by using a set as a cache.
+        # Use module attribute to persist the set, invalidating only if searched_locations changes.
+        searched_locations_set = getattr(self, "_searched_locations_set", None)
+        if searched_locations_set is None or len(searched_locations_set) != len(
+            searched_locations
+        ):
+            searched_locations_set = set(searched_locations)
+            # Cache the set on the instance
+            self._searched_locations_set = searched_locations_set
+
+        storage_location = self.storage.location
+
+        if storage_location not in searched_locations_set:
+            searched_locations.append(storage_location)
+            searched_locations_set.add(storage_location)
+
+        if self.storage.exists(path):
+            match = self.storage.path(path)
+            if all:
+                match = [match]
+            return match
         return []
 
     def list(self, ignore_patterns):
