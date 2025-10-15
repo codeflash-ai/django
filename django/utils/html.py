@@ -132,9 +132,14 @@ def format_html(format_string, *args, **kwargs):
             "Calling format_html() without passing args or kwargs is deprecated.",
             RemovedInDjango60Warning,
         )
-    args_safe = map(conditional_escape, args)
-    kwargs_safe = {k: conditional_escape(v) for (k, v) in kwargs.items()}
-    return mark_safe(format_string.format(*args_safe, **kwargs_safe))
+    args_safe = (conditional_escape(arg) for arg in args)
+    # Avoid creating a dict if kwargs is empty
+    if kwargs:
+        kwargs_safe = {k: conditional_escape(v) for k, v in kwargs.items()}
+        result = format_string.format(*args_safe, **kwargs_safe)
+    else:
+        result = format_string.format(*args_safe)
+    return mark_safe(result)
 
 
 def format_html_join(sep, format_string, args_generator):

@@ -31,6 +31,8 @@ from django.utils.translation import gettext as _
 
 from .base import InclusionAdminNode
 
+_EMPTY_SAFE_STRING = mark_safe("")
+
 register = Library()
 
 
@@ -44,10 +46,14 @@ def paginator_number(cl, i):
     elif i == cl.page_num:
         return format_html('<span class="this-page">{}</span> ', i)
     else:
+        # Hoist class string creation and only call mark_safe when needed
+        add_class = _EMPTY_SAFE_STRING
+        if i == cl.paginator.num_pages:
+            add_class = mark_safe(' class="end"')
         return format_html(
             '<a href="{}"{}>{}</a> ',
             cl.get_query_string({PAGE_VAR: i}),
-            mark_safe(' class="end"' if i == cl.paginator.num_pages else ""),
+            add_class,
             i,
         )
 
