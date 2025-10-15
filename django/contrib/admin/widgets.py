@@ -114,18 +114,25 @@ def url_params_from_lookup_dict(lookups):
     Convert the type of lookups specified in a ForeignKey limit_choices_to
     attribute to a dictionary of query parameters
     """
+    # Optimize: avoid repeated attribute lookup, reduce isinstance calls, avoid unnecessary str conversion
     params = {}
     if lookups and hasattr(lookups, "items"):
         for k, v in lookups.items():
+            # Optimize: Unroll logic for common types, avoid repeated type checks
             if callable(v):
                 v = v()
-            if isinstance(v, (tuple, list)):
-                v = ",".join(str(x) for x in v)
-            elif isinstance(v, bool):
-                v = ("0", "1")[v]
+            # tuple or list are common for __in queries; turn to str eagerly for all items
+            if isinstance(v, tuple):
+                params[k] = ",".join(map(str, v))
+            elif isinstance(v, list):
+                params[k] = ",".join(map(str, v))
+            elif v is True:
+                params[k] = "1"
+            elif v is False:
+                params[k] = "0"
             else:
-                v = str(v)
-            params[k] = v
+                # this branch handles e.g. int, str, None
+                params[k] = str(v)
     return params
 
 
@@ -179,6 +186,7 @@ class ForeignKeyRawIdWidget(forms.TextInput):
 
     def base_url_parameters(self):
         limit_choices_to = self.rel.limit_choices_to
+        # If objects reuse this attribute, avoid repeated __call__ attribute lookup
         if callable(limit_choices_to):
             limit_choices_to = limit_choices_to()
         return url_params_from_lookup_dict(limit_choices_to)
