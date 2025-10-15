@@ -1257,7 +1257,39 @@ class QuerySet(AltersData):
     update.alters_data = True
 
     async def aupdate(self, **kwargs):
-        return await sync_to_async(self.update)(**kwargs)
+        self._not_support_combined_queries("update")
+        if self.query.is_sliced:
+            raise TypeError("Cannot update a query once a slice has been taken.")
+        self._for_write = True
+        query = self.query.chain(sql.UpdateQuery)
+        query.add_update_values(kwargs)
+
+        # Inline annotations in order_by(), if possible.
+        new_order_by = []
+        for col in query.order_by:
+            alias = col
+            descending = False
+            if isinstance(alias, str) and alias.startswith("-"):
+                alias = alias.removeprefix("-")
+                descending = True
+            if annotation := query.annotations.get(alias):
+                if getattr(annotation, "contains_aggregate", False):
+                    raise exceptions.FieldError(
+                        f"Cannot update when ordering by an aggregate: {annotation}"
+                    )
+                if descending:
+                    annotation = annotation.desc()
+                new_order_by.append(annotation)
+            else:
+                new_order_by.append(col)
+        query.order_by = tuple(new_order_by)
+
+        # Clear any annotations so that they won't be present in subqueries.
+        query.annotations = {}
+        with transaction.mark_for_rollback_on_error(using=self.db):
+            rows = await sync_to_async(query.get_compiler(self.db).execute_sql)(CURSOR)
+        self._result_cache = None
+        return rows
 
     aupdate.alters_data = True
 
