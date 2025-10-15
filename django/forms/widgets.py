@@ -487,7 +487,8 @@ class ClearableFileInput(FileInput):
         """
         Return the file object if it has a defined url attribute.
         """
-        if self.is_initial(value):
+        # Inline is_initial logic to avoid function call overhead
+        if value and hasattr(value, "url") and value.url:
             return value
 
     def get_context(self, name, value, attrs):
@@ -836,11 +837,10 @@ class SelectMultiple(Select):
     allow_multiple_selected = True
 
     def value_from_datadict(self, data, files, name):
-        try:
-            getter = data.getlist
-        except AttributeError:
-            getter = data.get
-        return getter(name)
+        if hasattr(data, "getlist"):
+            return data.getlist(name)
+        else:
+            return data.get(name)
 
     def value_omitted_from_data(self, data, files, name):
         # An unselected <select multiple> doesn't appear in POST data, so it's
