@@ -43,6 +43,12 @@ BOOLEAN_ATTRIBUTES = {
 
 
 def normalize_whitespace(string):
+    # Fast path for empty strings or single-char (common case): avoids regex cost
+    if not string or (len(string) == 1 and string[0] not in "\t\n\f\r "):
+        return string
+    # Optimize by using the pattern only if necessary (non-ascii whitespace exists)
+    if not any(c in string for c in "\t\n\f\r "):
+        return string
     return ASCII_WHITESPACE.sub(" ", string)
 
 
@@ -75,16 +81,19 @@ class Element:
 
     def append(self, element):
         if isinstance(element, str):
+            # Avoid unnecessary normalization if string is empty or already normalized
+            orig_element = element
             element = normalize_whitespace(element)
+            if not element:
+                return  # Avoid adding empty string as a child
             if self.children and isinstance(self.children[-1], str):
-                self.children[-1] += element
-                self.children[-1] = normalize_whitespace(self.children[-1])
+                prev = self.children[-1] + element
+                prev_norm = normalize_whitespace(prev)
+                self.children[-1] = prev_norm
                 return
         elif self.children:
-            # removing last children if it is only whitespace
-            # this can result in incorrect dom representations since
-            # whitespace between inline tags like <span> is significant
-            if isinstance(self.children[-1], str) and self.children[-1].isspace():
+            last_child = self.children[-1]
+            if isinstance(last_child, str) and last_child.isspace():
                 self.children.pop()
         if element:
             self.children.append(element)
