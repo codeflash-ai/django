@@ -43,6 +43,16 @@ BOOLEAN_ATTRIBUTES = {
 
 
 def normalize_whitespace(string):
+    # Fast path: avoid unnecessary regex overhead for strings
+    # with no ASCII whitespace >1 character
+    if (
+        " " not in string
+        and "\t" not in string
+        and "\n" not in string
+        and "\r" not in string
+        and "\f" not in string
+    ):
+        return string
     return ASCII_WHITESPACE.sub(" ", string)
 
 
