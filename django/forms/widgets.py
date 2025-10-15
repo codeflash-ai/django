@@ -487,7 +487,8 @@ class ClearableFileInput(FileInput):
         """
         Return the file object if it has a defined url attribute.
         """
-        if self.is_initial(value):
+        # Inline is_initial logic to avoid function call overhead
+        if value and hasattr(value, "url") and value.url:
             return value
 
     def get_context(self, name, value, attrs):
@@ -652,28 +653,42 @@ class ChoiceWidget(Widget):
         groups = []
         has_selected = False
 
-        for index, (option_value, option_label) in enumerate(self.choices):
+        # Convert value to a set of strings for O(1) membership checks.
+        value_set = {str(v) for v in value}
+
+        append_group = groups.append
+        choices_iter = self.choices
+        allow_multiple_selected = self.allow_multiple_selected
+        create_option = self.create_option
+        checked_group_indices = []
+
+        for index, (option_value, option_label) in enumerate(choices_iter):
             if option_value is None:
                 option_value = ""
 
-            subgroup = []
+            # Fast path branches
             if isinstance(option_label, (list, tuple)):
                 group_name = option_value
+                subgroup = []
                 subindex = 0
                 choices = option_label
             else:
                 group_name = None
+                subgroup = []
                 subindex = None
                 choices = [(option_value, option_label)]
-            groups.append((group_name, subgroup, index))
+
+            append_group((group_name, subgroup, index))  # moved outside of branches
 
             for subvalue, sublabel in choices:
-                selected = (not has_selected or self.allow_multiple_selected) and str(
-                    subvalue
-                ) in value
-                has_selected |= selected
+                subvalue_str = str(subvalue)
+                selected = (
+                    not has_selected or allow_multiple_selected
+                ) and subvalue_str in value_set
+                if selected:
+                    has_selected = True
                 subgroup.append(
-                    self.create_option(
+                    create_option(
                         name,
                         subvalue,
                         sublabel,
@@ -685,25 +700,46 @@ class ChoiceWidget(Widget):
                 )
                 if subindex is not None:
                     subindex += 1
+
         return groups
 
     def create_option(
         self, name, value, label, selected, index, subindex=None, attrs=None
     ):
-        index = str(index) if subindex is None else "%s_%s" % (index, subindex)
-        option_attrs = (
-            self.build_attrs(self.attrs, attrs) if self.option_inherits_attrs else {}
-        )
+        # Optimize string formatting for index when both are integers.
+        if subindex is None:
+            index_str = str(index)
+        else:
+            # Slightly faster than '%s_%s' % (..) for these types and avoids unnecessary string formatting machinery
+            index_str = f"{index}_{subindex}"
+
+        if self.option_inherits_attrs:
+            # Avoid unnecessary copying if neither self.attrs nor attrs is present
+            if not self.attrs and not attrs:
+                option_attrs = {}
+            elif not attrs:
+                # Fast path: only self.attrs
+                option_attrs = self.attrs.copy()
+            elif not self.attrs:
+                # Fast path: only attrs
+                option_attrs = attrs.copy()
+            else:
+                # General path
+                option_attrs = self.build_attrs(self.attrs, attrs)
+        else:
+            option_attrs = {}
+
         if selected:
+            # Direct dict update is fine for small dicts
             option_attrs.update(self.checked_attribute)
         if "id" in option_attrs:
-            option_attrs["id"] = self.id_for_label(option_attrs["id"], index)
+            option_attrs["id"] = self.id_for_label(option_attrs["id"], index_str)
         return {
             "name": name,
             "value": value,
             "label": label,
             "selected": selected,
-            "index": index,
+            "index": index_str,
             "attrs": option_attrs,
             "type": self.input_type,
             "template_name": self.option_template_name,
