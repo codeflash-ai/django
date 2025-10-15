@@ -6,6 +6,7 @@ from django.conf import settings
 
 
 def gettext(message):
+    # Inline the function: bypass call overhead
     return message
 
 
@@ -22,7 +23,8 @@ ngettext_lazy = ngettext
 
 
 def pgettext(context, message):
-    return gettext(message)
+    # Avoid function call overhead by returning directly
+    return message
 
 
 def npgettext(context, singular, plural, number):
