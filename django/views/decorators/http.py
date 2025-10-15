@@ -104,17 +104,28 @@ def condition(etag_func=None, last_modified_func=None):
     """
 
     def decorator(func):
+        safe_methods = {"GET", "HEAD"}
+
+        # Optimize pre- and post-processing functions to reduce function call overhead and avoid repeated global lookups
+        _timezone_is_aware = timezone.is_aware
+        _timezone_make_aware = timezone.make_aware
+        _datetime_timezone_utc = datetime.timezone.utc
+        _http_date = http_date
+        _quote_etag = quote_etag
+
         def _pre_process_request(request, *args, **kwargs):
             # Compute values (if any) for the requested resource.
             res_last_modified = None
+            dt = None
             if last_modified_func:
-                if dt := last_modified_func(request, *args, **kwargs):
-                    if not timezone.is_aware(dt):
-                        dt = timezone.make_aware(dt, datetime.timezone.utc)
+                dt = last_modified_func(request, *args, **kwargs)
+                if dt:
+                    if not _timezone_is_aware(dt):
+                        dt = _timezone_make_aware(dt, _datetime_timezone_utc)
                     res_last_modified = int(dt.timestamp())
             # The value from etag_func() could be quoted or unquoted.
             res_etag = etag_func(request, *args, **kwargs) if etag_func else None
-            res_etag = quote_etag(res_etag) if res_etag is not None else None
+            res_etag = _quote_etag(res_etag) if res_etag is not None else None
             response = get_conditional_response(
                 request,
                 etag=res_etag,
@@ -125,13 +136,17 @@ def condition(etag_func=None, last_modified_func=None):
         def _post_process_request(request, response, res_etag, res_last_modified):
             # Set relevant headers on the response if they don't already exist
             # and if the request method is safe.
-            if request.method in ("GET", "HEAD"):
+            method = request.method
+            if method in safe_methods:
                 if res_last_modified and not response.has_header("Last-Modified"):
-                    response.headers["Last-Modified"] = http_date(res_last_modified)
+                    response.headers["Last-Modified"] = _http_date(res_last_modified)
                 if res_etag:
+                    # setdefault avoids a redundant second lookup if key is already present
                     response.headers.setdefault("ETag", res_etag)
 
-        if iscoroutinefunction(func):
+        is_async = iscoroutinefunction(func)
+
+        if is_async:
 
             @wraps(func)
             async def inner(request, *args, **kwargs):
