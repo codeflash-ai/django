@@ -164,9 +164,11 @@ class BaseStorage:
         The default level is the ``MESSAGE_LEVEL`` setting. If this is
         not found, the ``INFO`` level is used.
         """
-        if not hasattr(self, "_level"):
+        try:
+            return self._level
+        except AttributeError:
             self._level = getattr(settings, "MESSAGE_LEVEL", constants.INFO)
-        return self._level
+            return self._level
 
     def _set_level(self, value=None):
         """
