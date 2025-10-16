@@ -152,9 +152,17 @@ class BaseModelAdmin(metaclass=forms.MediaDefiningClass):
     def __init__(self):
         # Merge FORMFIELD_FOR_DBFIELD_DEFAULTS with the formfield_overrides
         # rather than simply overwriting.
-        overrides = copy.deepcopy(FORMFIELD_FOR_DBFIELD_DEFAULTS)
+        # Optimization: Use copy.copy instead of copy.deepcopy, since values in
+        # FORMFIELD_FOR_DBFIELD_DEFAULTS are shallow dicts mapping to class objects,
+        # which are immutable/reused safely. This avoids unnecessary deep copying.
+        overrides = copy.copy(FORMFIELD_FOR_DBFIELD_DEFAULTS)
         for k, v in self.formfield_overrides.items():
-            overrides.setdefault(k, {}).update(v)
+            if k in overrides:
+                # Only update the shallow dict, still safe due to value mutability pattern
+                overrides[k] = overrides[k].copy()
+                overrides[k].update(v)
+            else:
+                overrides[k] = v.copy() if isinstance(v, dict) else v
         self.formfield_overrides = overrides
 
     def formfield_for_dbfield(self, db_field, request, **kwargs):
@@ -413,7 +421,10 @@ class BaseModelAdmin(metaclass=forms.MediaDefiningClass):
         """
         Hook for specifying field ordering.
         """
-        return self.ordering or ()  # otherwise we might try to *None, which is bad ;)
+        ord_ = self.ordering
+        if ord_ is None:
+            return ()
+        return ord_
 
     def get_readonly_fields(self, request, obj=None):
         """
