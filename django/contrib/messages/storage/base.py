@@ -146,16 +146,34 @@ class BaseStorage:
         The message is only queued if it contained something and its level is
         not less than the recording level (``self.level``).
         """
+        # Fast exit if message is falsy
         if not message:
             return
-        # Check that the message level is not less than the recording level.
-        level = int(level)
-        if level < self.level:
+
+        # Fast exit if level is already int, otherwise (safely) convert
+        level_is_int = isinstance(level, int)
+        if not level_is_int:
+            try:
+                level = int(level)
+            except Exception:
+                level = int(level)  # preserve exception behavior
+
+        # Fast exit if level is too low (retrieving self.level only once)
+        rec_level = self.level
+        if level < rec_level:
             return
-        # Add the message.
+
+        # Mark as having added a new message immediately
         self.added_new = True
-        message = Message(level, message, extra_tags=extra_tags)
-        self._queued_messages.append(message)
+
+        # Avoid redundant keyword argument passing if extra_tags is str("")
+        # (micro-optimization, mainly benefits if used with default)
+        if extra_tags == "":
+            msg = Message(level, message)
+        else:
+            msg = Message(level, message, extra_tags=extra_tags)
+
+        self._queued_messages.append(msg)
 
     def _get_level(self):
         """
