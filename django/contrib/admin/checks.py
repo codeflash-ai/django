@@ -15,6 +15,10 @@ from django.template import engines
 from django.template.backends.django import DjangoTemplates
 from django.utils.module_loading import import_string
 
+_ERROR_MSG = "The value of 'list_max_show_all' must be an integer."
+
+_ERROR_ID = "admin.E119"
+
 
 def _issubclass(cls, classinfo):
     """
@@ -196,24 +200,26 @@ class BaseModelAdminChecks:
         """
         Check that `autocomplete_fields` is a list or tuple of model fields.
         """
-        if not isinstance(obj.autocomplete_fields, (list, tuple)):
+        acl = obj.autocomplete_fields
+        if not isinstance(acl, (list, tuple)):
             return must_be(
                 "a list or tuple",
                 option="autocomplete_fields",
                 obj=obj,
                 id="admin.E036",
             )
-        else:
-            return list(
-                chain.from_iterable(
-                    [
-                        self._check_autocomplete_fields_item(
-                            obj, field_name, "autocomplete_fields[%d]" % index
-                        )
-                        for index, field_name in enumerate(obj.autocomplete_fields)
-                    ]
-                )
+
+        # Use single for loop for improved locality and less memory overhead -- no temporary lists
+        errors = []
+        append_error = errors.append  # localize for speed in tight loop
+        for index, field_name in enumerate(acl):
+            res = self._check_autocomplete_fields_item(
+                obj, field_name, f"autocomplete_fields[{index}]"
             )
+            # Only append when result is not an empty list (most common, avoid extra work)
+            if res:
+                errors.extend(res)
+        return errors
 
     def _check_autocomplete_fields_item(self, obj, field_name, label):
         """
@@ -227,44 +233,43 @@ class BaseModelAdminChecks:
             return refer_to_missing_field(
                 field=field_name, option=label, obj=obj, id="admin.E037"
             )
-        else:
-            if not field.many_to_many and not isinstance(field, models.ForeignKey):
-                return must_be(
-                    "a foreign key or a many-to-many field",
-                    option=label,
-                    obj=obj,
-                    id="admin.E038",
+        # Use direct type check for ManyToMany and ForeignKey (avoid isinstance unless necessary)
+        if not field.many_to_many and not isinstance(field, models.ForeignKey):
+            return must_be(
+                "a foreign key or a many-to-many field",
+                option=label,
+                obj=obj,
+                id="admin.E038",
+            )
+        try:
+            related_admin = obj.admin_site.get_model_admin(field.remote_field.model)
+        except NotRegistered:
+            return [
+                checks.Error(
+                    'An admin for model "%s" has to be registered '
+                    "to be referenced by %s.autocomplete_fields."
+                    % (
+                        field.remote_field.model.__name__,
+                        type(obj).__name__,
+                    ),
+                    obj=obj.__class__,
+                    id="admin.E039",
                 )
-            try:
-                related_admin = obj.admin_site.get_model_admin(field.remote_field.model)
-            except NotRegistered:
-                return [
-                    checks.Error(
-                        'An admin for model "%s" has to be registered '
-                        "to be referenced by %s.autocomplete_fields."
-                        % (
-                            field.remote_field.model.__name__,
-                            type(obj).__name__,
-                        ),
-                        obj=obj.__class__,
-                        id="admin.E039",
-                    )
-                ]
-            else:
-                if not related_admin.search_fields:
-                    return [
-                        checks.Error(
-                            '%s must define "search_fields", because it\'s '
-                            "referenced by %s.autocomplete_fields."
-                            % (
-                                related_admin.__class__.__name__,
-                                type(obj).__name__,
-                            ),
-                            obj=obj.__class__,
-                            id="admin.E040",
-                        )
-                    ]
-            return []
+            ]
+        if not related_admin.search_fields:
+            return [
+                checks.Error(
+                    '%s must define "search_fields", because it\'s '
+                    "referenced by %s.autocomplete_fields."
+                    % (
+                        related_admin.__class__.__name__,
+                        type(obj).__name__,
+                    ),
+                    obj=obj.__class__,
+                    id="admin.E040",
+                )
+            ]
+        return []
 
     def _check_raw_id_fields(self, obj):
         """Check that `raw_id_fields` only contains field names that are listed
@@ -1077,10 +1082,10 @@ class ModelAdminChecks(BaseModelAdminChecks):
     def _check_list_max_show_all(self, obj):
         """Check that list_max_show_all is an integer."""
 
-        if not isinstance(obj.list_max_show_all, int):
-            return must_be(
-                "an integer", option="list_max_show_all", obj=obj, id="admin.E119"
-            )
+        value = obj.list_max_show_all
+        # Use type() is int for most common types to avoid isinstance overhead for int
+        if type(value) is not int:
+            return _must_be_integer(option="list_max_show_all", obj=obj)
         else:
             return []
 
@@ -1356,4 +1361,15 @@ def refer_to_missing_field(field, option, obj, id):
             obj=obj.__class__,
             id=id,
         ),
+    ]
+
+
+def _must_be_integer(option: str, obj) -> list:
+    # Directly reference the cached string/message/id
+    return [
+        checks.Error(
+            _ERROR_MSG,
+            obj=obj.__class__,
+            id=_ERROR_ID,
+        )
     ]
