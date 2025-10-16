@@ -150,12 +150,26 @@ class BaseModelAdmin(metaclass=forms.MediaDefiningClass):
         return self.checks_class().check(self, **kwargs)
 
     def __init__(self):
+        # Avoid unnecessary deepcopy for values that are not mutated
         # Merge FORMFIELD_FOR_DBFIELD_DEFAULTS with the formfield_overrides
         # rather than simply overwriting.
-        overrides = copy.deepcopy(FORMFIELD_FOR_DBFIELD_DEFAULTS)
-        for k, v in self.formfield_overrides.items():
-            overrides.setdefault(k, {}).update(v)
-        self.formfield_overrides = overrides
+        formfield_overrides = getattr(self, "formfield_overrides", {})
+        if formfield_overrides:
+            overrides = {
+                k: v.copy() if isinstance(v, dict) else v
+                for k, v in FORMFIELD_FOR_DBFIELD_DEFAULTS.items()
+            }
+            for k, v in formfield_overrides.items():
+                if k in overrides:
+                    # Only copy if we are going to mutate
+                    overrides[k] = overrides[k].copy()
+                    overrides[k].update(v)
+                else:
+                    overrides[k] = v.copy() if isinstance(v, dict) else v
+            self.formfield_overrides = overrides
+        else:
+            # Avoid copy if not overridden.
+            self.formfield_overrides = FORMFIELD_FOR_DBFIELD_DEFAULTS
 
     def formfield_for_dbfield(self, db_field, request, **kwargs):
         """
