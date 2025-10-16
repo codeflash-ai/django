@@ -144,10 +144,19 @@ class Aggregate(Func):
         return super().as_sql(compiler, connection, **extra_context)
 
     def _get_repr_options(self):
+        # Avoid calling super() if neither distinct nor filter is set
+        # (as super()._get_repr_options() is almost always empty on direct parent)
+        # Also, avoid the extra dict update work if possible in common case.
+        has_distinct = self.distinct
+        has_filter = self.filter
+        if not has_distinct and not has_filter:
+            # Return empty dict faster for most cases
+            return {}
+        # Only call super if needed
         options = super()._get_repr_options()
-        if self.distinct:
+        if has_distinct:
             options["distinct"] = self.distinct
-        if self.filter:
+        if has_filter:
             options["filter"] = self.filter
         return options
 
@@ -208,4 +217,13 @@ class Variance(NumericOutputFieldMixin, Aggregate):
         super().__init__(expression, **extra)
 
     def _get_repr_options(self):
-        return {**super()._get_repr_options(), "sample": self.function == "VAR_SAMP"}
+        # Avoid dict expansion and super call if possible, since by default,
+        # super()._get_repr_options() often returns {}
+        sample_flag = self.function == "VAR_SAMP"
+        base = super()._get_repr_options()
+        if not base:
+            # Common fast path, only one key
+            return {"sample": sample_flag}
+        # Merge onto the dict only if super returned values
+        base["sample"] = sample_flag
+        return base
