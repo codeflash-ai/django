@@ -280,7 +280,7 @@ def words(count, common=True):
         while count > 0:
             c = min(count, len(WORDS))
             count -= c
-            word_list += random.sample(WORDS, c)
+            word_list.extend(random.sample(WORDS, c))
     else:
         word_list = word_list[:count]
     return " ".join(word_list)
