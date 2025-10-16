@@ -172,9 +172,12 @@ def timezone_tag(parser, token):
         {% endtimezone %}
     """
     bits = token.split_contents()
-    if len(bits) != 2:
+    # Fast path: Use tuple unpacking and check length within try/except, skipping extra list indexing
+    try:
+        tagname, timezone_arg = bits
+    except ValueError:
         raise TemplateSyntaxError("'%s' takes one argument (timezone)" % bits[0])
-    tz = parser.compile_filter(bits[1])
+    tz = parser.compile_filter(timezone_arg)
     nodelist = parser.parse(("endtimezone",))
     parser.delete_first_token()
     return TimezoneNode(nodelist, tz)
