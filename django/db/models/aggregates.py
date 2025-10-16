@@ -43,16 +43,18 @@ class Aggregate(Func):
         self.filter = filter
         self.default = default
         super().__init__(*expressions, **extra)
+        # Cache source expressions with filter to avoid repeated computation
+        if filter is not None:
+            self._cached_source_expressions = self.source_expressions + [filter]
+        else:
+            self._cached_source_expressions = self.source_expressions
 
     def get_source_fields(self):
         # Don't return the filter expression since it's not a source field.
         return [e._output_field_or_none for e in super().get_source_expressions()]
 
     def get_source_expressions(self):
-        source_expressions = super().get_source_expressions()
-        if self.filter:
-            return source_expressions + [self.filter]
-        return source_expressions
+        return self._cached_source_expressions
 
     def set_source_expressions(self, exprs):
         self.filter = self.filter and exprs.pop()
