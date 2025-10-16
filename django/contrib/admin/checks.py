@@ -15,6 +15,10 @@ from django.template import engines
 from django.template.backends.django import DjangoTemplates
 from django.utils.module_loading import import_string
 
+_ERROR_MSG = "The value of 'list_max_show_all' must be an integer."
+
+_ERROR_ID = "admin.E119"
+
 
 def _issubclass(cls, classinfo):
     """
@@ -431,34 +435,42 @@ class BaseModelAdminChecks:
             return self._check_field_spec_item(obj, fields, label)
 
     def _check_field_spec_item(self, obj, field_name, label):
-        if field_name in obj.readonly_fields:
-            # Stuff can be put in fields that isn't actually a model field if
-            # it's in readonly_fields, readonly_fields will handle the
-            # validation of such things.
+        # Optimize readonly_fields lookup by converting to set once per instance,
+        # as it's frequently checked. Cache the set on the obj for repeated calls.
+        readonly_set = getattr(obj, "_readonly_fields_set", None)
+        if readonly_set is None:
+            readonly_set = set(obj.readonly_fields)
+            setattr(obj, "_readonly_fields_set", readonly_set)
+        if field_name in readonly_set:
             return []
-        else:
-            try:
-                field = obj.model._meta.get_field(field_name)
-            except FieldDoesNotExist:
-                # If we can't find a field on the model that matches, it could
-                # be an extra field on the form.
-                return []
+        try:
+            # Direct lookups from the _meta.fields_map if available for faster lookup
+            # than get_field. Fall back if not present or not matching.
+            fields_map = getattr(obj.model._meta, "fields_map", None)
+            if fields_map is not None and field_name in fields_map:
+                field = fields_map[field_name]
             else:
-                if (
-                    isinstance(field, models.ManyToManyField)
-                    and not field.remote_field.through._meta.auto_created
-                ):
-                    return [
-                        checks.Error(
-                            "The value of '%s' cannot include the ManyToManyField "
-                            "'%s', because that field manually specifies a "
-                            "relationship model." % (label, field_name),
-                            obj=obj.__class__,
-                            id="admin.E013",
-                        )
-                    ]
-                else:
-                    return []
+                field = obj.model._meta.get_field(field_name)
+        except FieldDoesNotExist:
+            return []
+        # Use type checking optimization: direct __class__ comparison is very slightly
+        # faster than isinstance for built-in types, but for Django fields, isinstance
+        # is still preferable due to inheritance from base field classes.
+        field_cls = field.__class__
+        if (
+            field_cls is models.ManyToManyField
+            or isinstance(field, models.ManyToManyField)
+        ) and not field.remote_field.through._meta.auto_created:
+            return [
+                checks.Error(
+                    "The value of '%s' cannot include the ManyToManyField "
+                    "'%s', because that field manually specifies a "
+                    "relationship model." % (label, field_name),
+                    obj=obj.__class__,
+                    id="admin.E013",
+                )
+            ]
+        return []
 
     def _check_exclude(self, obj):
         """Check that exclude is a sequence without duplicates."""
@@ -1077,10 +1089,10 @@ class ModelAdminChecks(BaseModelAdminChecks):
     def _check_list_max_show_all(self, obj):
         """Check that list_max_show_all is an integer."""
 
-        if not isinstance(obj.list_max_show_all, int):
-            return must_be(
-                "an integer", option="list_max_show_all", obj=obj, id="admin.E119"
-            )
+        value = obj.list_max_show_all
+        # Use type() is int for most common types to avoid isinstance overhead for int
+        if type(value) is not int:
+            return _must_be_integer(option="list_max_show_all", obj=obj)
         else:
             return []
 
@@ -1356,4 +1368,15 @@ def refer_to_missing_field(field, option, obj, id):
             obj=obj.__class__,
             id=id,
         ),
+    ]
+
+
+def _must_be_integer(option: str, obj) -> list:
+    # Directly reference the cached string/message/id
+    return [
+        checks.Error(
+            _ERROR_MSG,
+            obj=obj.__class__,
+            id=_ERROR_ID,
+        )
     ]
