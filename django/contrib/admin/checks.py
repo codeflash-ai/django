@@ -15,6 +15,10 @@ from django.template import engines
 from django.template.backends.django import DjangoTemplates
 from django.utils.module_loading import import_string
 
+_ERROR_MSG = "The value of 'list_max_show_all' must be an integer."
+
+_ERROR_ID = "admin.E119"
+
 
 def _issubclass(cls, classinfo):
     """
@@ -359,15 +363,16 @@ class BaseModelAdminChecks:
                 "a list or tuple", option="fieldsets", obj=obj, id="admin.E007"
             )
         else:
-            seen_fields = []
-            return list(
-                chain.from_iterable(
-                    self._check_fieldsets_item(
-                        obj, fieldset, "fieldsets[%d]" % index, seen_fields
-                    )
-                    for index, fieldset in enumerate(obj.fieldsets)
+            seen_fields = set()
+            results = []
+            # Avoid intermediate list and nested generators: use simple for-loop for perf.
+            for index, fieldset in enumerate(obj.fieldsets):
+                res = self._check_fieldsets_item(
+                    obj, fieldset, "fieldsets[%d]" % index, seen_fields
                 )
-            )
+                # Since returns are always lists: merge directly
+                results.extend(res)
+            return results
 
     def _check_fieldsets_item(self, obj, fieldset, label, seen_fields):
         """Check an item of `fieldsets`, i.e. check that this is a pair of a
@@ -397,8 +402,23 @@ class BaseModelAdminChecks:
                 id="admin.E008",
             )
 
-        seen_fields.extend(flatten(fieldset[1]["fields"]))
-        if len(seen_fields) != len(set(seen_fields)):
+        # Optimize flatten + duplicate check using a set
+        new_fields = fieldset[1]["fields"]
+        flat_fields = []
+        for field in new_fields:
+            if isinstance(field, (list, tuple)):
+                flat_fields.extend(field)
+            else:
+                flat_fields.append(field)
+
+        # Detect duplicates using seen_fields set
+        duplicate_found = False
+        for f in flat_fields:
+            if f in seen_fields:
+                duplicate_found = True
+                break
+            seen_fields.add(f)
+        if duplicate_found:
             return [
                 checks.Error(
                     "There are duplicate field(s) in '%s[1]'." % label,
@@ -406,12 +426,21 @@ class BaseModelAdminChecks:
                     id="admin.E012",
                 )
             ]
-        return list(
-            chain.from_iterable(
-                self._check_field_spec(obj, fieldset_fields, '%s[1]["fields"]' % label)
-                for fieldset_fields in fieldset[1]["fields"]
-            )
-        )
+        # Manually inline flatten logic for the next loop to eliminate another flatten call
+        results = []
+        for fieldset_fields in new_fields:
+            if isinstance(fieldset_fields, (list, tuple)):
+                for f in fieldset_fields:
+                    results.extend(
+                        self._check_field_spec(obj, f, '%s[1]["fields"]' % label)
+                    )
+            else:
+                results.extend(
+                    self._check_field_spec(
+                        obj, fieldset_fields, '%s[1]["fields"]' % label
+                    )
+                )
+        return results
 
     def _check_field_spec(self, obj, fields, label):
         """`fields` should be an item of `fields` or an item of
@@ -1077,10 +1106,10 @@ class ModelAdminChecks(BaseModelAdminChecks):
     def _check_list_max_show_all(self, obj):
         """Check that list_max_show_all is an integer."""
 
-        if not isinstance(obj.list_max_show_all, int):
-            return must_be(
-                "an integer", option="list_max_show_all", obj=obj, id="admin.E119"
-            )
+        value = obj.list_max_show_all
+        # Use type() is int for most common types to avoid isinstance overhead for int
+        if type(value) is not int:
+            return _must_be_integer(option="list_max_show_all", obj=obj)
         else:
             return []
 
@@ -1356,4 +1385,15 @@ def refer_to_missing_field(field, option, obj, id):
             obj=obj.__class__,
             id=id,
         ),
+    ]
+
+
+def _must_be_integer(option: str, obj) -> list:
+    # Directly reference the cached string/message/id
+    return [
+        checks.Error(
+            _ERROR_MSG,
+            obj=obj.__class__,
+            id=_ERROR_ID,
+        )
     ]
