@@ -120,12 +120,10 @@ class DatabaseCreation(BaseDatabaseCreation):
         TEST NAME. See https://www.sqlite.org/inmemorydb.html
         """
         test_database_name = self._get_test_db_name()
-        sig = [self.connection.settings_dict["NAME"]]
         if self.is_in_memory_db(test_database_name):
-            sig.append(self.connection.alias)
+            return (self.connection.settings_dict["NAME"], self.connection.alias)
         else:
-            sig.append(test_database_name)
-        return tuple(sig)
+            return (self.connection.settings_dict["NAME"], test_database_name)
 
     def setup_worker_connection(self, _worker_id):
         settings_dict = self.get_test_db_clone_settings(_worker_id)
