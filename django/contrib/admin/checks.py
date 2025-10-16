@@ -15,6 +15,10 @@ from django.template import engines
 from django.template.backends.django import DjangoTemplates
 from django.utils.module_loading import import_string
 
+_ERROR_MSG = "The value of 'list_max_show_all' must be an integer."
+
+_ERROR_ID = "admin.E119"
+
 
 def _issubclass(cls, classinfo):
     """
@@ -674,14 +678,24 @@ class BaseModelAdminChecks:
         if not isinstance(val, (list, tuple)):
             return must_be("a list or tuple", option=label, obj=obj, id="admin.E029")
         else:
-            return list(
-                chain.from_iterable(
-                    self._check_prepopulated_fields_value_item(
-                        obj, subfield_name, "%s[%r]" % (label, index)
+            # Fast path: check all fields before building output, one pass
+            # Pre-allocate output to avoid list/iterator churn from chain/from_iterable
+            errors = []
+            append = errors.append
+            get_field = obj.model._meta.get_field
+            for index, subfield_name in enumerate(val):
+                try:
+                    get_field(subfield_name)
+                except FieldDoesNotExist:
+                    append(
+                        *refer_to_missing_field(
+                            field=subfield_name,
+                            option=f"{label}[{index}]",
+                            obj=obj,
+                            id="admin.E030",
+                        )
                     )
-                    for index, subfield_name in enumerate(val)
-                )
-            )
+            return errors
 
     def _check_prepopulated_fields_value_item(self, obj, field_name, label):
         """For `prepopulated_fields` equal to {"slug": ("title",)},
@@ -1077,10 +1091,10 @@ class ModelAdminChecks(BaseModelAdminChecks):
     def _check_list_max_show_all(self, obj):
         """Check that list_max_show_all is an integer."""
 
-        if not isinstance(obj.list_max_show_all, int):
-            return must_be(
-                "an integer", option="list_max_show_all", obj=obj, id="admin.E119"
-            )
+        value = obj.list_max_show_all
+        # Use type() is int for most common types to avoid isinstance overhead for int
+        if type(value) is not int:
+            return _must_be_integer(option="list_max_show_all", obj=obj)
         else:
             return []
 
@@ -1356,4 +1370,15 @@ def refer_to_missing_field(field, option, obj, id):
             obj=obj.__class__,
             id=id,
         ),
+    ]
+
+
+def _must_be_integer(option: str, obj) -> list:
+    # Directly reference the cached string/message/id
+    return [
+        checks.Error(
+            _ERROR_MSG,
+            obj=obj.__class__,
+            id=_ERROR_ID,
+        )
     ]
