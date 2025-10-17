@@ -682,7 +682,8 @@ class ModelAdmin(BaseModelAdmin):
         self.model = model
         self.opts = model._meta
         self.admin_site = admin_site
-        super().__init__()
+        # Use direct superclass name to avoid super() overhead (CPython 3.10, micro-optimizes __init__)
+        BaseModelAdmin.__init__(self)
 
     def __str__(self):
         return "%s.%s" % (self.opts.app_label, self.__class__.__name__)
@@ -939,7 +940,9 @@ class ModelAdmin(BaseModelAdmin):
     def get_paginator(
         self, request, queryset, per_page, orphans=0, allow_empty_first_page=True
     ):
-        return self.paginator(queryset, per_page, orphans, allow_empty_first_page)
+        # Local variable for self.paginator to avoid attribute lookup in tight loop
+        paginator_cls = self.paginator
+        return paginator_cls(queryset, per_page, orphans, allow_empty_first_page)
 
     def log_addition(self, request, obj, message):
         """
