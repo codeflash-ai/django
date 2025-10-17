@@ -730,10 +730,11 @@ def add(value, arg):
     try:
         return int(value) + int(arg)
     except (ValueError, TypeError):
-        try:
-            return value + arg
-        except Exception:
-            return ""
+        pass
+    try:
+        return value + arg
+    except Exception:
+        return ""
 
 
 @register.filter(is_safe=False)
