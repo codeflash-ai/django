@@ -141,7 +141,7 @@ class Fieldline:
         self.model_admin = model_admin
         if readonly_fields is None:
             readonly_fields = ()
-        self.readonly_fields = readonly_fields
+        self.readonly_fields = set(readonly_fields)
 
     def __iter__(self):
         for i, field in enumerate(self.fields):
