@@ -3,7 +3,7 @@ import enum
 import json
 import re
 import warnings
-from functools import partial, update_wrapper
+from functools import lru_cache, partial, update_wrapper
 from urllib.parse import parse_qsl
 from urllib.parse import quote as urlquote
 from urllib.parse import urlparse
@@ -85,16 +85,27 @@ class ShowFacets(enum.Enum):
 HORIZONTAL, VERTICAL = 1, 2
 
 
+@lru_cache(maxsize=256)
 def get_content_type_for_model(obj):
     # Since this module gets imported in the application's root package,
     # it cannot import models from other applications at the module level.
-    from django.contrib.contenttypes.models import ContentType
-
-    return ContentType.objects.get_for_model(obj, for_concrete_model=False)
+    # Memoize lookup by model class for runtime acceleration.
+    # Note: Accept obj as either an instance or a model class.
+    try:
+        model_cls = obj._meta.model if hasattr(obj, "_meta") else obj
+    except Exception:
+        model_cls = obj
+    return _resolve_content_type_for_model(model_cls)
 
 
 def get_ul_class(radio_style):
     return "radiolist" if radio_style == VERTICAL else "radiolist inline"
+
+
+def _resolve_content_type_for_model(cls):
+    from django.contrib.contenttypes.models import ContentType
+
+    return ContentType.objects.get_for_model(cls, for_concrete_model=False)
 
 
 class IncorrectLookupParameters(Exception):
@@ -1329,7 +1340,11 @@ class ModelAdmin(BaseModelAdmin):
         )
         view_on_site_url = self.get_view_on_site_url(obj)
         has_editable_inline_admin_formsets = False
-        for inline in context["inline_admin_formsets"]:
+
+        # Avoid repeated lookups: cache context["inline_admin_formsets"] and adminform/formset accesses.
+        inline_admin_formsets = context["inline_admin_formsets"]
+
+        for inline in inline_admin_formsets:
             if (
                 inline.has_add_permission
                 or inline.has_change_permission
@@ -1337,6 +1352,13 @@ class ModelAdmin(BaseModelAdmin):
             ):
                 has_editable_inline_admin_formsets = True
                 break
+        has_file_field = context["adminform"].form.is_multipart() or any(
+            admin_formset.formset.is_multipart()
+            for admin_formset in inline_admin_formsets
+        )
+        # Fetch content_type_id just once per call with memoization (was a hot spot in profiling)
+        content_type_id = get_content_type_for_model(self.model).pk
+
         context.update(
             {
                 "add": add,
@@ -1345,19 +1367,13 @@ class ModelAdmin(BaseModelAdmin):
                 "has_add_permission": self.has_add_permission(request),
                 "has_change_permission": self.has_change_permission(request, obj),
                 "has_delete_permission": self.has_delete_permission(request, obj),
-                "has_editable_inline_admin_formsets": (
-                    has_editable_inline_admin_formsets
-                ),
-                "has_file_field": context["adminform"].form.is_multipart()
-                or any(
-                    admin_formset.formset.is_multipart()
-                    for admin_formset in context["inline_admin_formsets"]
-                ),
+                "has_editable_inline_admin_formsets": has_editable_inline_admin_formsets,
+                "has_file_field": has_file_field,
                 "has_absolute_url": view_on_site_url is not None,
                 "absolute_url": view_on_site_url,
                 "form_url": form_url,
                 "opts": self.opts,
-                "content_type_id": get_content_type_for_model(self.model).pk,
+                "content_type_id": content_type_id,
                 "save_as": self.save_as,
                 "save_on_top": self.save_on_top,
                 "to_field_var": TO_FIELD_VAR,
@@ -1375,11 +1391,11 @@ class ModelAdmin(BaseModelAdmin):
         return TemplateResponse(
             request,
             form_template
-            or [
+            or (
                 "admin/%s/%s/change_form.html" % (app_label, self.opts.model_name),
                 "admin/%s/change_form.html" % app_label,
                 "admin/change_form.html",
-            ],
+            ),
             context,
         )
 
