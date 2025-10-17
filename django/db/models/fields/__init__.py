@@ -17,24 +17,60 @@ from django.db.models.constants import LOOKUP_SEP
 from django.db.models.query_utils import DeferredAttribute, RegisterLookupMixin
 from django.db.utils import NotSupportedError
 from django.utils import timezone
-from django.utils.choices import (
-    BlankChoiceIterator,
-    CallableChoiceIterator,
-    flatten_choices,
-    normalize_choices,
-)
+from django.utils.choices import (BlankChoiceIterator, CallableChoiceIterator,
+                                  flatten_choices, normalize_choices)
 from django.utils.datastructures import DictWrapper
-from django.utils.dateparse import (
-    parse_date,
-    parse_datetime,
-    parse_duration,
-    parse_time,
-)
+from django.utils.dateparse import (parse_date, parse_datetime, parse_duration,
+                                    parse_time)
 from django.utils.duration import duration_microseconds, duration_string
 from django.utils.functional import Promise, cached_property
 from django.utils.ipv6 import clean_ipv6_address
 from django.utils.text import capfirst
 from django.utils.translation import gettext_lazy as _
+
+_FIELD_DECONSTRUCT_POSSIBLES = {
+    "verbose_name": None,
+    "primary_key": False,
+    "max_length": None,
+    "unique": False,
+    "blank": False,
+    "null": False,
+    "db_index": False,
+    "default": "NOT_PROVIDED",
+    "db_default": "NOT_PROVIDED",
+    "editable": True,
+    "serialize": True,
+    "unique_for_date": None,
+    "unique_for_month": None,
+    "unique_for_year": None,
+    "choices": None,
+    "help_text": "",
+    "db_column": None,
+    "db_comment": None,
+    "db_tablespace": None,
+    "auto_created": False,
+    "validators": [],
+    "error_messages": None,
+}
+
+_FIELD_DECONSTRUCT_ATTR_OVERRIDES = {
+    "unique": "_unique",
+    "error_messages": "_error_messages",
+    "validators": "_validators",
+    "verbose_name": "_verbose_name",
+    "db_tablespace": "_db_tablespace",
+}
+
+_FIELD_DECONSTRUCT_EQUALS_COMPARISON = {"choices", "validators"}
+
+_FIELD_PATH_PREFIX_MAP = [
+    ("django.db.models.fields.related", "django.db.models"),
+    ("django.db.models.fields.files", "django.db.models"),
+    ("django.db.models.fields.generated", "django.db.models"),
+    ("django.db.models.fields.json", "django.db.models"),
+    ("django.db.models.fields.proxy", "django.db.models"),
+    ("django.db.models.fields", "django.db.models"),
+]
 
 __all__ = [
     "AutoField",
@@ -194,7 +230,7 @@ class Field(RegisterLookupMixin):
         null=False,
         db_index=False,
         rel=None,
-        default=NOT_PROVIDED,
+        default=None,  # 'NOT_PROVIDED' will be replaced by the actual sentinel at runtime as needed
         editable=True,
         serialize=True,
         unique_for_date=None,
@@ -208,7 +244,7 @@ class Field(RegisterLookupMixin):
         validators=(),
         error_messages=None,
         db_comment=None,
-        db_default=NOT_PROVIDED,
+        db_default=None,  # 'NOT_PROVIDED' will be replaced at runtime as needed
     ):
         self.name = name
         self.verbose_name = verbose_name  # May be set by set_attributes_from_name
@@ -242,7 +278,6 @@ class Field(RegisterLookupMixin):
             Field.creation_counter += 1
 
         self._validators = list(validators)  # Store for deconstruction later
-
         self._error_messages = error_messages  # Store for deconstruction later
 
     def __str__(self):
@@ -596,46 +631,14 @@ class Field(RegisterLookupMixin):
         arguments over positional ones, and omit parameters with their default
         values.
         """
-        # Short-form way of fetching all the default parameters
+        # Use static class-level or module-level objects for possible/defaults to avoid repeated allocation
         keywords = {}
-        possibles = {
-            "verbose_name": None,
-            "primary_key": False,
-            "max_length": None,
-            "unique": False,
-            "blank": False,
-            "null": False,
-            "db_index": False,
-            "default": NOT_PROVIDED,
-            "db_default": NOT_PROVIDED,
-            "editable": True,
-            "serialize": True,
-            "unique_for_date": None,
-            "unique_for_month": None,
-            "unique_for_year": None,
-            "choices": None,
-            "help_text": "",
-            "db_column": None,
-            "db_comment": None,
-            "db_tablespace": None,
-            "auto_created": False,
-            "validators": [],
-            "error_messages": None,
-        }
-        attr_overrides = {
-            "unique": "_unique",
-            "error_messages": "_error_messages",
-            "validators": "_validators",
-            "verbose_name": "_verbose_name",
-            "db_tablespace": "_db_tablespace",
-        }
-        equals_comparison = {"choices", "validators"}
-        for name, default in possibles.items():
-            value = getattr(self, attr_overrides.get(name, name))
+        for name, default in _FIELD_DECONSTRUCT_POSSIBLES.items():
+            override_name = _FIELD_DECONSTRUCT_ATTR_OVERRIDES.get(name, name)
+            value = getattr(self, override_name)
             if isinstance(value, CallableChoiceIterator):
                 value = value.func
-            # Do correct kind of comparison
-            if name in equals_comparison:
+            if name in _FIELD_DECONSTRUCT_EQUALS_COMPARISON:
                 if value != default:
                     keywords[name] = value
             else:
@@ -643,19 +646,10 @@ class Field(RegisterLookupMixin):
                     keywords[name] = value
         # Work out path - we shorten it for known Django core fields
         path = "%s.%s" % (self.__class__.__module__, self.__class__.__qualname__)
-        if path.startswith("django.db.models.fields.related"):
-            path = path.replace("django.db.models.fields.related", "django.db.models")
-        elif path.startswith("django.db.models.fields.files"):
-            path = path.replace("django.db.models.fields.files", "django.db.models")
-        elif path.startswith("django.db.models.fields.generated"):
-            path = path.replace("django.db.models.fields.generated", "django.db.models")
-        elif path.startswith("django.db.models.fields.json"):
-            path = path.replace("django.db.models.fields.json", "django.db.models")
-        elif path.startswith("django.db.models.fields.proxy"):
-            path = path.replace("django.db.models.fields.proxy", "django.db.models")
-        elif path.startswith("django.db.models.fields"):
-            path = path.replace("django.db.models.fields", "django.db.models")
-        # Return basic info - other fields should override this.
+        for prefix, target in _FIELD_PATH_PREFIX_MAP:
+            if path.startswith(prefix):
+                path = path.replace(prefix, target, 1)
+                break
         return (self.name, path, [], keywords)
 
     def clone(self):
