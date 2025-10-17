@@ -137,34 +137,48 @@ def floatformat(text, arg=-1):
     """
     force_grouping = False
     use_l10n = True
+    input_val = None
+    arg_str = arg
+    # Fastest for common str-arg case: check and parse grouping/unlocalized flags
     if isinstance(arg, str):
-        last_char = arg[-1]
-        if arg[-2:] in {"gu", "ug"}:
+        alen = len(arg)
+        if alen >= 2 and arg[-2:] in {"gu", "ug"}:
             force_grouping = True
             use_l10n = False
             arg = arg[:-2] or -1
-        elif last_char == "g":
-            force_grouping = True
-            arg = arg[:-1] or -1
-        elif last_char == "u":
-            use_l10n = False
-            arg = arg[:-1] or -1
+        else:
+            last_char = arg[-1]
+            if last_char == "g":
+                force_grouping = True
+                arg = arg[:-1] or -1
+            elif last_char == "u":
+                use_l10n = False
+                arg = arg[:-1] or -1
+
+    # Fast path for empty/None input
+    if not text and text != 0:
+        return ""
+
+    # Robust parse: try Decimal directly, fallback to float string
     try:
-        input_val = str(text)
-        d = Decimal(input_val)
-    except InvalidOperation:
+        d = Decimal(str(text))
+    except (InvalidOperation, ValueError):
         try:
             d = Decimal(str(float(text)))
         except (ValueError, InvalidOperation, TypeError):
             return ""
+
     try:
         p = int(arg)
-    except ValueError:
+    except (ValueError, TypeError):
+        # On parse failure, display the attempted input_val
+        input_val = str(text)
         return input_val
 
     try:
         m = int(d) - d
     except (ValueError, OverflowError, InvalidOperation):
+        input_val = str(text)
         return input_val
 
     if not m and p <= 0:
@@ -177,16 +191,15 @@ def floatformat(text, arg=-1):
             )
         )
 
-    exp = Decimal(1).scaleb(-abs(p))
-    # Set the precision high enough to avoid an exception (#15789).
+    # Use local abs_p variable to avoid recomputation
+    abs_p = abs(p)
+    exp = Decimal(1).scaleb(-abs_p)
     tupl = d.as_tuple()
     units = len(tupl[1])
     units += -tupl[2] if m else tupl[2]
-    prec = abs(p) + units + 1
+    prec = abs_p + units + 1
     prec = max(getcontext().prec, prec)
 
-    # Avoid conversion to scientific notation by accessing `sign`, `digits`,
-    # and `exponent` from Decimal.as_tuple() directly.
     rounded_d = d.quantize(exp, ROUND_HALF_UP, Context(prec=prec))
     sign, digits, exponent = rounded_d.as_tuple()
     digits = [str(digit) for digit in reversed(digits)]
@@ -199,7 +212,7 @@ def floatformat(text, arg=-1):
     return mark_safe(
         formats.number_format(
             number,
-            abs(p),
+            abs_p,
             use_l10n=use_l10n,
             force_grouping=force_grouping,
         )
