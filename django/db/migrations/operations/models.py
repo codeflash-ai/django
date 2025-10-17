@@ -822,11 +822,11 @@ class AlterModelOptions(ModelOptionOperation):
         super().__init__(name)
 
     def deconstruct(self):
-        kwargs = {
-            "name": self.name,
-            "options": self.options,
-        }
-        return (self.__class__.__qualname__, [], kwargs)
+        return (
+            self.__class__.__qualname__,
+            [],
+            {"name": self.name, "options": self.options},
+        )
 
     def state_forwards(self, app_label, state):
         state.alter_model_options(
