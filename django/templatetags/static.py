@@ -27,15 +27,30 @@ class PrefixNode(template.Node):
         """
         # token.split_contents() isn't useful here because tags using this
         # method don't accept variable as arguments.
-        tokens = token.contents.split()
-        if len(tokens) > 1 and tokens[1] != "as":
-            raise template.TemplateSyntaxError(
-                "First argument in '%s' must be 'as'" % tokens[0]
-            )
-        if len(tokens) > 1:
-            varname = tokens[2]
-        else:
+        contents = token.contents
+        # Fast-path: check for common forms before splitting
+        # 1. No arguments: "{% get_static_prefix %}"
+        if contents == "get_static_prefix":
             varname = None
+        # 2. Most common form: "{% get_static_prefix as varname %}"
+        elif contents.startswith("get_static_prefix as "):
+            # Avoid .split() for speed, just take third word if possible
+            varname = contents[21:].strip()
+            if not varname:
+                # fallback: malformed usage, falls through to split-based handling
+                tokens = contents.split()
+                if len(tokens) > 1 and tokens[1] != "as":
+                    raise template.TemplateSyntaxError(
+                        "First argument in '%s' must be 'as'" % tokens[0]
+                    )
+                varname = tokens[2] if len(tokens) > 1 else None
+        else:
+            tokens = contents.split()
+            if len(tokens) > 1 and tokens[1] != "as":
+                raise template.TemplateSyntaxError(
+                    "First argument in '%s' must be 'as'" % tokens[0]
+                )
+            varname = tokens[2] if len(tokens) > 1 else None
         return cls(varname, name)
 
     @classmethod
