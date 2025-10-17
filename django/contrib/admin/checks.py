@@ -15,6 +15,10 @@ from django.template import engines
 from django.template.backends.django import DjangoTemplates
 from django.utils.module_loading import import_string
 
+_ERROR_MSG = "The value of 'list_max_show_all' must be an integer."
+
+_ERROR_ID = "admin.E119"
+
 
 def _issubclass(cls, classinfo):
     """
@@ -823,7 +827,13 @@ class ModelAdminChecks(BaseModelAdminChecks):
         """Check save_as is a boolean."""
 
         if not isinstance(obj.save_as, bool):
-            return must_be("a boolean", option="save_as", obj=obj, id="admin.E101")
+            return [
+                checks.Error(
+                    f"The value of 'save_as' must be a boolean.",
+                    obj=obj.__class__,
+                    id="admin.E101",
+                )
+            ]
         else:
             return []
 
@@ -891,17 +901,79 @@ class ModelAdminChecks(BaseModelAdminChecks):
     def _check_list_display(self, obj):
         """Check that list_display only contains fields or usable attributes."""
 
-        if not isinstance(obj.list_display, (list, tuple)):
+        list_display = obj.list_display
+        if not isinstance(list_display, (list, tuple)):
             return must_be(
                 "a list or tuple", option="list_display", obj=obj, id="admin.E107"
             )
-        else:
-            return list(
-                chain.from_iterable(
-                    self._check_list_display_item(obj, item, "list_display[%d]" % index)
-                    for index, item in enumerate(obj.list_display)
+
+        # Tight in-loop: avoid multiple indirections, micro-optimize locals
+        errors = []
+        append_errs = errors.extend
+        checks_fn = self._check_list_display_item
+        obj_cls = obj.__class__
+        model = obj.model
+        model_meta = model._meta
+
+        # Hoist functions into locals for speed
+        get_field = model_meta.get_field
+        get_attr = getattr
+
+        for index, item in enumerate(list_display):
+            # Avoid tuple formatting on tight path unless needed
+            label = f"list_display[{index}]"
+
+            # Hot path: callable/item/attr checks first (majority of cases)
+            if callable(item) or hasattr(obj, item):
+                continue
+
+            # Try to resolve as model field
+            try:
+                field = get_field(item)
+            except FieldDoesNotExist:
+                try:
+                    field = get_attr(model, item)
+                except AttributeError:
+                    try:
+                        fields = get_fields_from_path(model, item)
+                        field = fields[-1]
+                    except (FieldDoesNotExist, NotRelationField):
+                        append_errs(
+                            [
+                                checks.Error(
+                                    f"The value of '{label}' refers to '{item}', which is not "
+                                    f"a callable or attribute of '{obj_cls.__name__}', "
+                                    "or an attribute, method, or field on "
+                                    f"'{model_meta.label}'.",
+                                    obj=obj_cls,
+                                    id="admin.E108",
+                                )
+                            ]
+                        )
+                        continue
+
+            # Check for many-to-many or reverse FK
+            is_relation = getattr(field, "is_relation", False)
+            many_to_many = getattr(field, "many_to_many", False)
+            one_to_many = getattr(field, "one_to_many", False)
+            rel = getattr(field, "rel", None)
+
+            if (is_relation and (many_to_many or one_to_many)) or (
+                rel and getattr(rel.field, "many_to_one", False)
+            ):
+                append_errs(
+                    [
+                        checks.Error(
+                            f"The value of '{label}' must not be a many-to-many field or a "
+                            f"reverse foreign key.",
+                            obj=obj_cls,
+                            id="admin.E109",
+                        )
+                    ]
                 )
-            )
+                continue
+
+        return errors
 
     def _check_list_display_item(self, obj, item, label):
         if callable(item):
@@ -1077,10 +1149,10 @@ class ModelAdminChecks(BaseModelAdminChecks):
     def _check_list_max_show_all(self, obj):
         """Check that list_max_show_all is an integer."""
 
-        if not isinstance(obj.list_max_show_all, int):
-            return must_be(
-                "an integer", option="list_max_show_all", obj=obj, id="admin.E119"
-            )
+        value = obj.list_max_show_all
+        # Use type() is int for most common types to avoid isinstance overhead for int
+        if type(value) is not int:
+            return _must_be_integer(option="list_max_show_all", obj=obj)
         else:
             return []
 
@@ -1356,4 +1428,15 @@ def refer_to_missing_field(field, option, obj, id):
             obj=obj.__class__,
             id=id,
         ),
+    ]
+
+
+def _must_be_integer(option: str, obj) -> list:
+    # Directly reference the cached string/message/id
+    return [
+        checks.Error(
+            _ERROR_MSG,
+            obj=obj.__class__,
+            id=_ERROR_ID,
+        )
     ]
