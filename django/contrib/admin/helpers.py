@@ -321,12 +321,10 @@ class InlineAdminFormSet:
         self.formset = formset
         self.fieldsets = fieldsets
         self.model_admin = model_admin
-        if readonly_fields is None:
-            readonly_fields = ()
-        self.readonly_fields = readonly_fields
-        if prepopulated_fields is None:
-            prepopulated_fields = {}
-        self.prepopulated_fields = prepopulated_fields
+        self.readonly_fields = readonly_fields if readonly_fields is not None else ()
+        self.prepopulated_fields = (
+            prepopulated_fields if prepopulated_fields is not None else {}
+        )
         self.classes = " ".join(inline.classes) if inline.classes else ""
         self.has_add_permission = has_add_permission
         self.has_change_permission = has_change_permission
