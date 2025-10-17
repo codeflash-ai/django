@@ -56,7 +56,8 @@ class MigrationAutodetector:
         self.from_state = from_state
         self.to_state = to_state
         self.questioner = questioner or MigrationQuestioner()
-        self.existing_apps = {app for app, model in from_state.models}
+        # Optimize set construction by using a set comprehension directly from the list of models
+        self.existing_apps = set(app for app, _ in from_state.models)
 
     def changes(self, graph, trim_to_apps=None, convert_apps=None, migration_name=None):
         """
@@ -76,21 +77,32 @@ class MigrationAutodetector:
         Used for full comparison for rename/alter; sometimes a single-level
         deconstruction will not compare correctly.
         """
-        if isinstance(obj, list):
+        # Fast path for primitive types, avoids unnecessary isinstance checks for common cases
+        if obj is None or isinstance(obj, (int, float, bool, str)):
+            return obj
+
+        obj_type = type(obj)
+
+        # Use type comparisons instead of isinstance where safe to avoid MRO traversal
+        if obj_type is list:
+            # List comprehension is already efficient
             return [self.deep_deconstruct(value) for value in obj]
-        elif isinstance(obj, tuple):
+        elif obj_type is tuple:
+            # Tuple comprehension is already efficient
             return tuple(self.deep_deconstruct(value) for value in obj)
-        elif isinstance(obj, dict):
+        elif obj_type is dict:
+            # Dict comprehension is already efficient
             return {key: self.deep_deconstruct(value) for key, value in obj.items()}
-        elif isinstance(obj, functools.partial):
+        elif obj_type is functools.partial:
+            # Direct attribute access is fast
             return (
                 obj.func,
                 self.deep_deconstruct(obj.args),
                 self.deep_deconstruct(obj.keywords),
             )
-        elif isinstance(obj, COMPILED_REGEX_TYPE):
+        elif obj_type is COMPILED_REGEX_TYPE:
             return RegexObject(obj)
-        elif isinstance(obj, type):
+        elif obj_type is type:
             # If this is a type that implements 'deconstruct' as an instance method,
             # avoid treating this as being deconstructible itself - see #22951
             return obj
@@ -100,13 +112,14 @@ class MigrationAutodetector:
                 # we have a field which also returns a name
                 deconstructed = deconstructed[1:]
             path, args, kwargs = deconstructed
+            # Recursively deep deconstruct arguments
             return (
                 path,
                 [self.deep_deconstruct(value) for value in args],
                 {key: self.deep_deconstruct(value) for key, value in kwargs.items()},
             )
-        else:
-            return obj
+        # Fallthrough for all other cases
+        return obj
 
     def only_relation_agnostic_fields(self, fields):
         """
