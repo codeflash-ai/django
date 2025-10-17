@@ -144,8 +144,8 @@ class StaticNode(template.Node):
 
         path = parser.compile_filter(bits[1])
 
-        if len(bits) >= 2 and bits[-2] == "as":
-            varname = bits[3]
+        if len(bits) >= 4 and bits[-2] == "as":
+            varname = bits[-1]
         else:
             varname = None
 
