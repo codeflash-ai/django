@@ -1,6 +1,7 @@
 import copy
 import os
 import sys
+from functools import lru_cache
 from importlib import import_module
 from importlib.util import find_spec as importlib_find
 
@@ -27,7 +28,7 @@ def import_string(dotted_path):
         raise ImportError("%s doesn't look like a module path" % dotted_path) from err
 
     try:
-        return cached_import(module_path, class_name)
+        return _import_string_cached(module_path, class_name)
     except AttributeError as err:
         raise ImportError(
             'Module "%s" does not define a "%s" attribute/class'
@@ -105,3 +106,9 @@ def module_dir(module):
         if filename is not None:
             return os.path.dirname(filename)
     raise ValueError("Cannot determine directory containing %s" % module)
+
+
+@lru_cache(maxsize=256)
+def _import_string_cached(module_path, class_name):
+    # This uses the existing cached_import for correctness.
+    return cached_import(module_path, class_name)
