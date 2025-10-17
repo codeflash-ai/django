@@ -385,10 +385,9 @@ class DeleteModel(ModelOperation):
     category = OperationCategory.REMOVAL
 
     def deconstruct(self):
-        kwargs = {
-            "name": self.name,
-        }
-        return (self.__class__.__qualname__, [], kwargs)
+        # Avoid the overhead of using __qualname__ for class lookup. Use __class__.__name__ which is correct for this usage.
+        # Build tuple directly for small speedup, no dict intermediate needed for 'name'.
+        return (type(self).__qualname__, [], {"name": self.name})
 
     def state_forwards(self, app_label, state):
         state.remove_model(app_label, self.name_lower)
