@@ -1,7 +1,6 @@
 import copy
 import enum
 import json
-import re
 import warnings
 from functools import partial, update_wrapper
 from urllib.parse import parse_qsl
@@ -1963,10 +1962,20 @@ class ModelAdmin(BaseModelAdmin):
 
     def _get_edited_object_pks(self, request, prefix):
         """Return POST data values of list_editable primary keys."""
-        pk_pattern = re.compile(
-            r"{}-\d+-{}$".format(re.escape(prefix), self.opts.pk.name)
-        )
-        return [value for key, value in request.POST.items() if pk_pattern.match(key)]
+        # Optimization: Avoid re.compile and use a direct string manipulation approach for pattern match
+        # The pattern is: f"{prefix}-<digits>-{pk_name}"
+        prefix_ = f"{prefix}-"
+        suffix = f"-{self.opts.pk.name}"
+        prefix_len = len(prefix_)
+        suffix_len = len(suffix)
+        results = []
+        for key, value in request.POST.items():
+            if key.startswith(prefix_) and key.endswith(suffix):
+                # Ensure that the middle part is digits
+                num_part = key[prefix_len:-suffix_len]
+                if num_part.isdigit():
+                    results.append(value)
+        return results
 
     def _get_list_editable_queryset(self, request, prefix):
         """
