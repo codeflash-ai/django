@@ -989,7 +989,7 @@ class RemoveIndex(IndexOperation):
         )
 
     def describe(self):
-        return "Remove index %s from %s" % (self.name, self.model_name)
+        return f"Remove index {self.name} from {self.model_name}"
 
     @property
     def migration_name_fragment(self):
