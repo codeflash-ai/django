@@ -40,7 +40,7 @@ def resolve_relation(model, app_label=None, model_name=None):
                 )
             return app_label, model_name
         if "." in model:
-            app_label, model_name = model.split(".", 1)
+            app_label, _, model_name = model.partition(".")
             return app_label, model_name.lower()
         if app_label is None:
             raise TypeError(
