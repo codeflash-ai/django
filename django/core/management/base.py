@@ -131,9 +131,17 @@ class DjangoHelpFormatter(HelpFormatter):
     }
 
     def _reordered_actions(self, actions):
-        return sorted(
-            actions, key=lambda a: set(a.option_strings) & self.show_last != set()
-        )
+        show_last = self.show_last  # Local variable for faster access
+
+        # Precompute the sort key for each action to avoid redundant set constructions
+        def action_key(a):
+            # Iterate over option_strings for early exit instead of building a set
+            for opt in a.option_strings:
+                if opt in show_last:
+                    return 1  # Put action after common ones
+            return 0  # Put action before common ones
+
+        return sorted(actions, key=action_key)
 
     def add_usage(self, usage, actions, *args, **kwargs):
         super().add_usage(usage, self._reordered_actions(actions), *args, **kwargs)
