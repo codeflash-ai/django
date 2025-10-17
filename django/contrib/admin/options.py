@@ -1143,7 +1143,7 @@ class ModelAdmin(BaseModelAdmin):
             return self.list_display_links
         else:
             # Use only the first item in list_display as link
-            return list(list_display)[:1]
+            return list_display[:1]
 
     def get_list_filter(self, request):
         """
