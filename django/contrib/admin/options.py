@@ -1090,8 +1090,9 @@ class ModelAdmin(BaseModelAdmin):
         tuple (name, description).
         """
         choices = [] + default_choices
+        model_dict = model_format_dict(self.opts)
         for func, name, description in self.get_actions(request).values():
-            choice = (name, description % model_format_dict(self.opts))
+            choice = (name, description % model_dict)
             choices.append(choice)
         return choices
 
