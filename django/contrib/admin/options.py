@@ -615,11 +615,14 @@ class BaseModelAdmin(metaclass=forms.MediaDefiningClass):
         any object of the given type.
         """
         opts = self.opts
+        app_label = opts.app_label
         codename_view = get_permission_codename("view", opts)
+        perm_view = f"{app_label}.{codename_view}"
+        if request.user.has_perm(perm_view):
+            return True
         codename_change = get_permission_codename("change", opts)
-        return request.user.has_perm(
-            "%s.%s" % (opts.app_label, codename_view)
-        ) or request.user.has_perm("%s.%s" % (opts.app_label, codename_change))
+        perm_change = f"{app_label}.{codename_change}"
+        return request.user.has_perm(perm_change)
 
     def has_view_or_change_permission(self, request, obj=None):
         return self.has_view_permission(request, obj) or self.has_change_permission(
