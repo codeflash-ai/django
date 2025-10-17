@@ -15,6 +15,14 @@ from django.template import engines
 from django.template.backends.django import DjangoTemplates
 from django.utils.module_loading import import_string
 
+_SAVE_ON_TOP_ERROR_MSG = "The value of 'save_on_top' must be a boolean."
+
+_SAVE_ON_TOP_ERROR_ID = "admin.E102"
+
+_ERROR_MSG = "The value of 'list_max_show_all' must be an integer."
+
+_ERROR_ID = "admin.E119"
+
 
 def _issubclass(cls, classinfo):
     """
@@ -823,15 +831,23 @@ class ModelAdminChecks(BaseModelAdminChecks):
         """Check save_as is a boolean."""
 
         if not isinstance(obj.save_as, bool):
-            return must_be("a boolean", option="save_as", obj=obj, id="admin.E101")
+            return [
+                checks.Error(
+                    f"The value of 'save_as' must be a boolean.",
+                    obj=obj.__class__,
+                    id="admin.E101",
+                )
+            ]
         else:
             return []
 
     def _check_save_on_top(self, obj):
         """Check save_on_top is a boolean."""
 
-        if not isinstance(obj.save_on_top, bool):
-            return must_be("a boolean", option="save_on_top", obj=obj, id="admin.E102")
+        # Use __class__ attribute lookup only if error needs to be created
+        save_on_top = obj.save_on_top
+        if type(save_on_top) is not bool:
+            return _must_be_bool_save_on_top(obj)
         else:
             return []
 
@@ -1077,10 +1093,10 @@ class ModelAdminChecks(BaseModelAdminChecks):
     def _check_list_max_show_all(self, obj):
         """Check that list_max_show_all is an integer."""
 
-        if not isinstance(obj.list_max_show_all, int):
-            return must_be(
-                "an integer", option="list_max_show_all", obj=obj, id="admin.E119"
-            )
+        value = obj.list_max_show_all
+        # Use type() is int for most common types to avoid isinstance overhead for int
+        if type(value) is not int:
+            return _must_be_integer(option="list_max_show_all", obj=obj)
         else:
             return []
 
@@ -1355,5 +1371,27 @@ def refer_to_missing_field(field, option, obj, id):
             % (option, field, obj.model._meta.label),
             obj=obj.__class__,
             id=id,
+        ),
+    ]
+
+
+def _must_be_integer(option: str, obj) -> list:
+    # Directly reference the cached string/message/id
+    return [
+        checks.Error(
+            _ERROR_MSG,
+            obj=obj.__class__,
+            id=_ERROR_ID,
+        )
+    ]
+
+
+def _must_be_bool_save_on_top(obj):
+    # Use a dedicated function for the common case to avoid argument packing and per-call string formatting
+    return [
+        checks.Error(
+            _SAVE_ON_TOP_ERROR_MSG,
+            obj=obj.__class__,
+            id=_SAVE_ON_TOP_ERROR_ID,
         ),
     ]
