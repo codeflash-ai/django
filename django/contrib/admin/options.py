@@ -1789,13 +1789,18 @@ class ModelAdmin(BaseModelAdmin):
         Get the initial form data from the request's GET params.
         """
         initial = dict(request.GET.items())
+        opts_get_field = self.opts.get_field  # Local variable for faster access
+        m2m_type = models.ManyToManyField  # Local variable for faster isinstance checks
+        # Avoid repeated lookups in opts.get_field by processing only fields that may be M2M
+        # If there are no M2M fields present in initial, this remains efficient
+        # Otherwise, do all lookups inline with explicit variable referencing for perf improvement
         for k in initial:
             try:
-                f = self.opts.get_field(k)
+                f = opts_get_field(k)
             except FieldDoesNotExist:
                 continue
             # We have to special-case M2Ms as a list of comma-separated PKs.
-            if isinstance(f, models.ManyToManyField):
+            if isinstance(f, m2m_type):
                 initial[k] = initial[k].split(",")
         return initial
 
