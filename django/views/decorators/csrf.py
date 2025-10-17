@@ -1,4 +1,4 @@
-from functools import wraps
+from functools import WRAPPER_ASSIGNMENTS, wraps
 
 from asgiref.sync import iscoroutinefunction
 
@@ -66,4 +66,10 @@ def csrf_exempt(view_func):
 
     _view_wrapper.csrf_exempt = True
 
-    return wraps(view_func)(_view_wrapper)
+    for attr in WRAPPER_ASSIGNMENTS:
+        try:
+            setattr(_view_wrapper, attr, getattr(view_func, attr))
+        except AttributeError:
+            pass
+
+    return _view_wrapper
