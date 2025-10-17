@@ -494,19 +494,22 @@ class InlineAdminForm(AdminForm):
             )
 
     def needs_explicit_pk_field(self):
-        return (
-            # Auto fields are editable, so check for auto or non-editable pk.
-            self.form._meta.model._meta.auto_field
-            or not self.form._meta.model._meta.pk.editable
-            or
-            # Also search any parents for an auto field. (The pk info is
-            # propagated to child models so that does not need to be checked
-            # in parents.)
-            any(
-                parent._meta.auto_field or not parent._meta.model._meta.pk.editable
-                for parent in self.form._meta.model._meta.all_parents
-            )
-        )
+        # Optimize repeated attribute lookups by localizing them
+        model_meta = self.form._meta.model._meta
+        auto_field = model_meta.auto_field
+        pk_editable = model_meta.pk.editable
+
+        if auto_field or not pk_editable:
+            return True
+
+        # Localize all_parents only once, avoid repeated getattr
+        all_parents = model_meta.all_parents
+        # Use a generator expression with localized attribute access
+        for parent in all_parents:
+            parent_meta = parent._meta
+            if parent_meta.auto_field or not parent_meta.model._meta.pk.editable:
+                return True
+        return False
 
     def pk_field(self):
         return AdminField(self.form, self.formset._pk_field.name, False)
