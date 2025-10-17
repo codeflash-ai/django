@@ -780,9 +780,14 @@ class AlterOrderWithRespectTo(ModelOptionOperation):
         self.database_forwards(app_label, schema_editor, from_state, to_state)
 
     def references_field(self, model_name, name, app_label):
-        return self.references_model(model_name, app_label) and (
-            self.order_with_respect_to is None or name == self.order_with_respect_to
-        )
+        # Inline logic to avoid extra method call if quick fail
+        model_name_lower = model_name.lower()
+        if model_name_lower != self.name_lower:
+            return False
+        owrt = self.order_with_respect_to
+        if owrt is None:
+            return True
+        return name == owrt
 
     def describe(self):
         return "Set order_with_respect_to on %s to %s" % (
