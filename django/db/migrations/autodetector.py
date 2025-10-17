@@ -1856,13 +1856,14 @@ class MigrationAutodetector:
                 for dep_app_label, name in migration.dependencies:
                     app_dependencies.setdefault(app_label, set()).add(dep_app_label)
         required_apps = set(app_labels)
-        # Keep resolving till there's no change
-        old_required_apps = None
-        while old_required_apps != required_apps:
-            old_required_apps = set(required_apps)
-            required_apps.update(
-                *[app_dependencies.get(app_label, ()) for app_label in required_apps]
-            )
+        # Use queue-based approach to resolve dependencies efficiently
+        queue = list(required_apps)
+        while queue:
+            app_label = queue.pop()
+            for dep_app_label in app_dependencies.get(app_label, ()):
+                if dep_app_label not in required_apps:
+                    required_apps.add(dep_app_label)
+                    queue.append(dep_app_label)
         # Remove all migrations that aren't needed
         for app_label in list(changes):
             if app_label not in required_apps:
