@@ -116,8 +116,8 @@ class CreateModel(ModelOperation):
         if name_lower == self.name_lower:
             return True
 
-        # Check we didn't inherit from the model
         reference_model_tuple = (app_label, name_lower)
+        # Check we didn't inherit from the model
         for base in self.bases:
             if (
                 base is not models.Model
@@ -127,10 +127,9 @@ class CreateModel(ModelOperation):
                 return True
 
         # Check we have no FKs/M2Ms with it
+        model_tuple = (app_label, self.name_lower)
         for _name, field in self.fields:
-            if field_references(
-                (app_label, self.name_lower), field, reference_model_tuple
-            ):
+            if field_references(model_tuple, field, reference_model_tuple):
                 return True
         return False
 

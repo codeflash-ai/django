@@ -71,7 +71,14 @@ def field_references(
         return False
     references_to = None
     references_through = None
-    if resolve_relation(remote_field.model, *model_tuple) == reference_model_tuple:
+
+    remote_model = remote_field.model
+    model_tuple_app_label, model_tuple_model_name = model_tuple
+
+    if (
+        resolve_relation(remote_model, model_tuple_app_label, model_tuple_model_name)
+        == reference_model_tuple
+    ):
         to_fields = getattr(field, "to_fields", None)
         if (
             reference_field_name is None
@@ -89,8 +96,15 @@ def field_references(
             reference_field_name in to_fields
         ):
             references_to = (remote_field, to_fields)
-    through = getattr(remote_field, "through", None)
-    if through and resolve_relation(through, *model_tuple) == reference_model_tuple:
+
+    remote_through = getattr(remote_field, "through", None)
+    if (
+        remote_through is not None
+        and resolve_relation(
+            remote_through, model_tuple_app_label, model_tuple_model_name
+        )
+        == reference_model_tuple
+    ):
         through_fields = remote_field.through_fields
         if (
             reference_field_name is None
