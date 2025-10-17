@@ -271,10 +271,11 @@ def stringformat(value, arg):
     See https://docs.python.org/library/stdtypes.html#printf-style-string-formatting
     for documentation of Python string formatting.
     """
-    if isinstance(value, tuple):
+    if type(value) is tuple:
         value = str(value)
     try:
-        return ("%" + str(arg)) % value
+        fmt = "%" + arg
+        return fmt % value
     except (ValueError, TypeError):
         return ""
 
