@@ -547,17 +547,17 @@ class MigrationAutodetector:
         """
         try:
             model_state = self.to_state.models[item]
-            base_names = {
-                base if isinstance(base, str) else base.__name__
-                for base in model_state.bases
-            }
+            if model_state.options.get("swappable"):
+                return ("___" + item[0], "___" + item[1])
+
+            # Check for AbstractUser and AbstractBaseUser without creating a set
+            for base in model_state.bases:
+                base_name = base if isinstance(base, str) else base.__name__
+                if base_name in ("AbstractUser", "AbstractBaseUser"):
+                    return ("___" + item[0], "___" + item[1])
+
             string_version = "%s.%s" % (item[0], item[1])
-            if (
-                model_state.options.get("swappable")
-                or "AbstractUser" in base_names
-                or "AbstractBaseUser" in base_names
-                or settings.AUTH_USER_MODEL.lower() == string_version.lower()
-            ):
+            if settings.AUTH_USER_MODEL.lower() == string_version.lower():
                 return ("___" + item[0], "___" + item[1])
         except LookupError:
             pass
