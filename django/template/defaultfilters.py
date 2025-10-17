@@ -543,16 +543,36 @@ def _property_resolver(arg):
         if VARIABLE_ATTRIBUTE_SEPARATOR + "_" in arg or arg[0] == "_":
             raise AttributeError("Access to private variables is forbidden.")
         parts = arg.split(VARIABLE_ATTRIBUTE_SEPARATOR)
+        parts_len = len(parts)
 
-        def resolve(value):
-            for part in parts:
+        # Optimize for the common single-part case (no dots)
+        if parts_len == 1:
+            part = parts[0]
+
+            def resolve(value):
                 try:
-                    value = value[part]
+                    return value[part]
                 except (AttributeError, IndexError, KeyError, TypeError, ValueError):
-                    value = getattr(value, part)
-            return value
+                    return getattr(value, part)
 
-        return resolve
+            return resolve
+        else:
+
+            def resolve(value):
+                for part in parts:
+                    try:
+                        value = value[part]
+                    except (
+                        AttributeError,
+                        IndexError,
+                        KeyError,
+                        TypeError,
+                        ValueError,
+                    ):
+                        value = getattr(value, part)
+                return value
+
+            return resolve
     else:
         return itemgetter(arg)
 
@@ -575,8 +595,10 @@ def dictsortreversed(value, arg):
     Given a list of dicts, return that list sorted in reverse order by the
     property given in the argument.
     """
+    # Precompute the resolver to avoid redundant function creation inside sorted()
     try:
-        return sorted(value, key=_property_resolver(arg), reverse=True)
+        keyfn = _property_resolver(arg)
+        return sorted(value, key=keyfn, reverse=True)
     except (AttributeError, TypeError):
         return ""
 
