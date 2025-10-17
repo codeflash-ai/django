@@ -643,7 +643,12 @@ class AlterTogetherOptionOperation(ModelOptionOperation):
 
     def __init__(self, name, option_value):
         if option_value:
-            option_value = set(normalize_together(option_value))
+            normalized = normalize_together(option_value)
+            option_value = set(normalized)
+            # Precompute the length for performance in describe()
+            self._option_value_len = len(option_value)
+        else:
+            self._option_value_len = 0
         setattr(self, self.option_name, option_value)
         super().__init__(name)
 
@@ -686,10 +691,11 @@ class AlterTogetherOptionOperation(ModelOptionOperation):
         )
 
     def describe(self):
+        # Use the precomputed length
         return "Alter %s for %s (%s constraint(s))" % (
             self.option_name,
             self.name,
-            len(self.option_value or ""),
+            self._option_value_len,
         )
 
     @property
