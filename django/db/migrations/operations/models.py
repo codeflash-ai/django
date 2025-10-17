@@ -422,9 +422,9 @@ class RenameModel(ModelOperation):
     category = OperationCategory.ALTERATION
 
     def __init__(self, old_name, new_name):
+        super().__init__(old_name)
         self.old_name = old_name
         self.new_name = new_name
-        super().__init__(old_name)
 
     @cached_property
     def old_name_lower(self):
@@ -435,11 +435,16 @@ class RenameModel(ModelOperation):
         return self.new_name.lower()
 
     def deconstruct(self):
-        kwargs = {
-            "old_name": self.old_name,
-            "new_name": self.new_name,
-        }
-        return (self.__class__.__qualname__, [], kwargs)
+        # Use self.__class__ directly to avoid attribute lookup for __qualname__ at runtime.
+        # Returning the qualname as a string exactly as before for behavioral preservation.
+        return (
+            type(self).__qualname__,
+            [],
+            {
+                "old_name": self.old_name,
+                "new_name": self.new_name,
+            },
+        )
 
     def state_forwards(self, app_label, state):
         state.rename_model(app_label, self.old_name, self.new_name)
