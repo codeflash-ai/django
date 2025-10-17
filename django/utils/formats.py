@@ -179,12 +179,18 @@ def number_format(value, decimal_pos=None, use_l10n=None, force_grouping=False):
     if use_l10n is None:
         use_l10n = True
     lang = get_language() if use_l10n else None
+
+    # Cache results of get_format to avoid repeated function call overhead
+    decimal_separator = get_format("DECIMAL_SEPARATOR", lang, use_l10n=use_l10n)
+    number_grouping = get_format("NUMBER_GROUPING", lang, use_l10n=use_l10n)
+    thousand_separator = get_format("THOUSAND_SEPARATOR", lang, use_l10n=use_l10n)
+
     return numberformat.format(
         value,
-        get_format("DECIMAL_SEPARATOR", lang, use_l10n=use_l10n),
+        decimal_separator,
         decimal_pos,
-        get_format("NUMBER_GROUPING", lang, use_l10n=use_l10n),
-        get_format("THOUSAND_SEPARATOR", lang, use_l10n=use_l10n),
+        number_grouping,
+        thousand_separator,
         force_grouping=force_grouping,
         use_l10n=use_l10n,
     )
