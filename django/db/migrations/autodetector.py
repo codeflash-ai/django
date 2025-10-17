@@ -1503,10 +1503,9 @@ class MigrationAutodetector:
 
     @staticmethod
     def _get_dependencies_for_foreign_key(app_label, model_name, field, project_state):
-        remote_field_model = None
-        if hasattr(field.remote_field, "model"):
-            remote_field_model = field.remote_field.model
-        else:
+        remote_field = field.remote_field
+        remote_field_model = getattr(remote_field, "model", None)
+        if remote_field_model is None:
             relations = project_state.relations[app_label, model_name]
             for (remote_app_label, remote_model_name), fields in relations.items():
                 if any(
@@ -1515,7 +1514,6 @@ class MigrationAutodetector:
                 ):
                     remote_field_model = f"{remote_app_label}.{remote_model_name}"
                     break
-        # Account for FKs to swappable models
         swappable_setting = getattr(field, "swappable_setting", None)
         if swappable_setting is not None:
             dep_app_label = "__setting__"
@@ -1531,9 +1529,10 @@ class MigrationAutodetector:
                 dep_app_label, dep_object_name, None, OperationDependency.Type.CREATE
             )
         ]
-        if getattr(field.remote_field, "through", None):
+        through = getattr(remote_field, "through", None)
+        if through:
             through_app_label, through_object_name = resolve_relation(
-                field.remote_field.through,
+                through,
                 app_label,
                 model_name,
             )
