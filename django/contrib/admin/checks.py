@@ -15,6 +15,10 @@ from django.template import engines
 from django.template.backends.django import DjangoTemplates
 from django.utils.module_loading import import_string
 
+_ERROR_MSG = "The value of 'list_max_show_all' must be an integer."
+
+_ERROR_ID = "admin.E119"
+
 
 def _issubclass(cls, classinfo):
     """
@@ -823,7 +827,13 @@ class ModelAdminChecks(BaseModelAdminChecks):
         """Check save_as is a boolean."""
 
         if not isinstance(obj.save_as, bool):
-            return must_be("a boolean", option="save_as", obj=obj, id="admin.E101")
+            return [
+                checks.Error(
+                    f"The value of 'save_as' must be a boolean.",
+                    obj=obj.__class__,
+                    id="admin.E101",
+                )
+            ]
         else:
             return []
 
@@ -843,12 +853,12 @@ class ModelAdminChecks(BaseModelAdminChecks):
                 "a list or tuple", option="inlines", obj=obj, id="admin.E103"
             )
         else:
-            return list(
-                chain.from_iterable(
+            errors = []
+            for index, item in enumerate(obj.inlines):
+                errors.extend(
                     self._check_inlines_item(obj, item, "inlines[%d]" % index)
-                    for index, item in enumerate(obj.inlines)
                 )
-            )
+            return errors
 
     def _check_inlines_item(self, obj, inline, label):
         """Check one inline model admin."""
@@ -863,7 +873,12 @@ class ModelAdminChecks(BaseModelAdminChecks):
                 )
             ]
 
-        from django.contrib.admin.options import InlineModelAdmin
+        try:
+            InlineModelAdmin = self.__class__._InlineModelAdmin
+        except AttributeError:
+            from django.contrib.admin.options import InlineModelAdmin
+
+            self.__class__._InlineModelAdmin = InlineModelAdmin
 
         if not _issubclass(inline, InlineModelAdmin):
             return [
@@ -1077,10 +1092,10 @@ class ModelAdminChecks(BaseModelAdminChecks):
     def _check_list_max_show_all(self, obj):
         """Check that list_max_show_all is an integer."""
 
-        if not isinstance(obj.list_max_show_all, int):
-            return must_be(
-                "an integer", option="list_max_show_all", obj=obj, id="admin.E119"
-            )
+        value = obj.list_max_show_all
+        # Use type() is int for most common types to avoid isinstance overhead for int
+        if type(value) is not int:
+            return _must_be_integer(option="list_max_show_all", obj=obj)
         else:
             return []
 
@@ -1356,4 +1371,15 @@ def refer_to_missing_field(field, option, obj, id):
             obj=obj.__class__,
             id=id,
         ),
+    ]
+
+
+def _must_be_integer(option: str, obj) -> list:
+    # Directly reference the cached string/message/id
+    return [
+        checks.Error(
+            _ERROR_MSG,
+            obj=obj.__class__,
+            id=_ERROR_ID,
+        )
     ]
