@@ -63,8 +63,10 @@ def mark_safe(s):
 
     If used on a method as a decorator, mark the returned data as safe.
 
-    Can be called multiple times on a single string.
+    Can be calls multiple times on a single string.
     """
+    if isinstance(s, SafeString):
+        return s
     if hasattr(s, "__html__"):
         return s
     if callable(s):
