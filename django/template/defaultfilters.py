@@ -678,28 +678,23 @@ def unordered_list(value, autoescape=True):
             return x
 
     def walk_items(item_list):
-        item_iterator = iter(item_list)
-        try:
-            item = next(item_iterator)
-            while True:
-                try:
-                    next_item = next(item_iterator)
-                except StopIteration:
-                    yield item, None
-                    break
+        n = len(item_list)
+        i = 0
+        while i < n:
+            item = item_list[i]
+            children = None
+            if i + 1 < n:
+                next_item = item_list[i + 1]
                 if isinstance(next_item, (list, tuple, types.GeneratorType)):
                     try:
                         iter(next_item)
                     except TypeError:
                         pass
                     else:
-                        yield item, next_item
-                        item = next(item_iterator)
-                        continue
-                yield item, None
-                item = next_item
-        except StopIteration:
-            pass
+                        children = next_item
+                        i += 1
+            yield item, children
+            i += 1
 
     def list_formatter(item_list, tabs=1):
         indent = "\t" * tabs
