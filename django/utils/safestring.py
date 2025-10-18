@@ -5,8 +5,6 @@ that the producer of the string has already turned characters that should not
 be interpreted by the HTML engine (e.g. '<') into the appropriate entities.
 """
 
-from functools import wraps
-
 from django.utils.functional import keep_lazy
 
 
@@ -48,7 +46,6 @@ SafeText = SafeString  # For backwards compatibility since Django 2.0.
 
 
 def _safety_decorator(safety_marker, func):
-    @wraps(func)
     def wrapper(*args, **kwargs):
         return safety_marker(func(*args, **kwargs))
 
