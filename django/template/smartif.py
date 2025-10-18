@@ -48,6 +48,15 @@ def infix(bp, func):
     evaluates the node.
     """
 
+    cache = getattr(infix, "_cache", None)
+    if cache is None:
+        cache = {}
+        setattr(infix, "_cache", cache)
+    key = (bp, id(func))
+    Operator = cache.get(key)
+    if Operator is not None:
+        return Operator
+
     class Operator(TokenBase):
         lbp = bp
 
@@ -65,6 +74,7 @@ def infix(bp, func):
                 # %} where 'bar' does not support 'in', so default to False
                 return False
 
+    cache[key] = Operator
     return Operator
 
 
@@ -159,7 +169,9 @@ class IfParser:
         # Turn 'is','not' and 'not','in' into single tokens.
         num_tokens = len(tokens)
         mapped_tokens = []
+        append = mapped_tokens.append  # Optimize method lookup
         i = 0
+        translate_token = self.translate_token  # Optimize method lookup
         while i < num_tokens:
             token = tokens[i]
             if token == "is" and i + 1 < num_tokens and tokens[i + 1] == "not":
@@ -168,11 +180,12 @@ class IfParser:
             elif token == "not" and i + 1 < num_tokens and tokens[i + 1] == "in":
                 token = "not in"
                 i += 1  # skip 'in'
-            mapped_tokens.append(self.translate_token(token))
+            append(translate_token(token))
             i += 1
 
         self.tokens = mapped_tokens
         self.pos = 0
+        self._tokens_len = len(self.tokens)  # Cache length for fast access
         self.current_token = self.next_token()
 
     def translate_token(self, token):
@@ -184,12 +197,12 @@ class IfParser:
             return op()
 
     def next_token(self):
-        if self.pos >= len(self.tokens):
+        pos = self.pos  # Local var for speed
+        if pos >= self._tokens_len:
             return EndToken
-        else:
-            retval = self.tokens[self.pos]
-            self.pos += 1
-            return retval
+        retval = self.tokens[pos]
+        self.pos = pos + 1
+        return retval
 
     def parse(self):
         retval = self.expression()
