@@ -194,7 +194,15 @@ def localdate(value=None, timezone=None):
     Local time is defined by the current time zone, unless another time zone is
     specified.
     """
-    return localtime(value, timezone).date()
+    # Inline localtime for minor speed improvement (avoid extra function call)
+    if value is None:
+        value = now()
+    if timezone is None:
+        timezone = get_current_timezone()
+    utcoffset = value.utcoffset()
+    if utcoffset is None:
+        raise ValueError("localdate() cannot be applied to a naive datetime")
+    return value.astimezone(timezone).date()
 
 
 def now():
