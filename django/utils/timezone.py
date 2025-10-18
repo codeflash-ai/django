@@ -152,9 +152,11 @@ def template_localtime(value, use_tz=None):
 
     This function is designed for use by the template engine.
     """
+    if not isinstance(value, datetime):
+        return value
+
     should_convert = (
-        isinstance(value, datetime)
-        and (settings.USE_TZ if use_tz is None else use_tz)
+        (settings.USE_TZ if use_tz is None else use_tz)
         and not is_naive(value)
         and getattr(value, "convert_to_local_time", True)
     )
