@@ -756,6 +756,11 @@ class ModelState:
                     "%r doesn't have one." % index
                 )
 
+        # Build index name map for O(1) lookups
+        self._index_name_map = {}
+        for index in self.options["indexes"]:
+            self._index_name_map[index.name] = index
+
     @cached_property
     def name_lower(self):
         return self.name.lower()
@@ -957,10 +962,10 @@ class ModelState:
         return type(self.name, bases, body)
 
     def get_index_by_name(self, name):
-        for index in self.options["indexes"]:
-            if index.name == name:
-                return index
-        raise ValueError("No index named %s on model %s" % (name, self.name))
+        try:
+            return self._index_name_map[name]
+        except KeyError:
+            raise ValueError("No index named %s on model %s" % (name, self.name))
 
     def get_constraint_by_name(self, name):
         for constraint in self.options["constraints"]:
