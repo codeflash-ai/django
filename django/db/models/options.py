@@ -68,7 +68,7 @@ def normalize_together(option_together):
         if not isinstance(first_element, (tuple, list)):
             option_together = (option_together,)
         # Normalize everything to tuples
-        return tuple(tuple(ot) for ot in option_together)
+        return tuple(map(tuple, option_together))
     except TypeError:
         # If the value of option_together isn't valid, return it
         # verbatim; this will be picked up by the check framework later.
