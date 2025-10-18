@@ -217,17 +217,21 @@ def repercent_broken_unicode(path):
     UTF-8 octet sequence.
     """
     changed_parts = []
+    offset = 0
     while True:
         try:
-            path.decode()
+            path[offset:].decode()
         except UnicodeDecodeError as e:
             # CVE-2019-14235: A recursion shouldn't be used since the exception
             # handling uses massive amounts of memory
-            repercent = quote(path[e.start : e.end], safe=b"/#%[]=:;$&()+,!?*@'~")
-            changed_parts.append(path[: e.start] + repercent.encode())
-            path = path[e.end :]
+            start, end = offset + e.start, offset + e.end
+            repercent = quote(path[start:end], safe="/#%[]=:;$&()+,!?*@'~")
+            changed_parts.append(path[offset:start] + repercent.encode())
+            offset = end
+            if offset >= len(path):
+                return b"".join(changed_parts)
         else:
-            return b"".join(changed_parts) + path
+            return b"".join(changed_parts) + path[offset:]
 
 
 def filepath_to_uri(path):
