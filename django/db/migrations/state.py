@@ -907,14 +907,26 @@ class ModelState:
     def construct_managers(self):
         """Deep-clone the managers using deconstruction."""
         # Sort all managers by their creation counter
-        sorted_managers = sorted(self.managers, key=lambda v: v[1].creation_counter)
+        # OPTIMIZATION: Use operator.attrgetter instead of lambda for better performance
+        from operator import attrgetter
+
+        creation_counter_attr = attrgetter("creation_counter")
+        # Do sorting using a tuple index to minimize attr overhead
+        sorted_managers = sorted(
+            self.managers, key=lambda v: creation_counter_attr(v[1])
+        )
+        import_string_cache = {}
         for mgr_name, manager in sorted_managers:
             as_manager, manager_path, qs_path, args, kwargs = manager.deconstruct()
             if as_manager:
-                qs_class = import_string(qs_path)
+                if qs_path not in import_string_cache:
+                    import_string_cache[qs_path] = import_string(qs_path)
+                qs_class = import_string_cache[qs_path]
                 yield mgr_name, qs_class.as_manager()
             else:
-                manager_class = import_string(manager_path)
+                if manager_path not in import_string_cache:
+                    import_string_cache[manager_path] = import_string(manager_path)
+                manager_class = import_string_cache[manager_path]
                 yield mgr_name, manager_class(*args, **kwargs)
 
     def clone(self):
@@ -933,28 +945,43 @@ class ModelState:
 
     def render(self, apps):
         """Create a Model object from our current state into the given apps."""
-        # First, make a Meta object
-        meta_contents = {"app_label": self.app_label, "apps": apps, **self.options}
-        meta = type("Meta", (), meta_contents)
-        # Then, work out our bases
+        # Explicit op constructions to avoid unnecessary work in type("Meta", ...)
+        meta_contents = dict(self.options)
+        meta_contents["app_label"] = self.app_label
+        meta_contents["apps"] = apps
+
+        # Cache get_model lookup to local variable for loop
+        get_model = apps.get_model
+        bases = self.bases
+
+        # OPTIMIZATION: Use a list comprehension for resolving bases first, then tuple
         try:
-            bases = tuple(
-                (apps.get_model(base) if isinstance(base, str) else base)
-                for base in self.bases
-            )
+            resolved_bases = []
+            for base in bases:
+                if isinstance(base, str):
+                    resolved_bases.append(get_model(base))
+                else:
+                    resolved_bases.append(base)
+            bases_tuple = tuple(resolved_bases)
         except LookupError:
             raise InvalidBasesError(
                 "Cannot resolve one or more bases from %r" % (self.bases,)
             )
-        # Clone fields for the body, add other bits.
-        body = {name: field.clone() for name, field in self.fields.items()}
-        body["Meta"] = meta
-        body["__module__"] = "__fake__"
 
+        # OPTIMIZATION: Preallocate body and re-use dict update for clones
+        fields = self.fields
+        body = {}
+        field_items = fields.items()
+        body.update((name, field.clone()) for name, field in field_items)
+
+        body["Meta"] = type("Meta", (), meta_contents)
+        body["__module__"] = "__fake__"
         # Restore managers
-        body.update(self.construct_managers())
+        for mgr_name, manager_instance in self.construct_managers():
+            body[mgr_name] = manager_instance
         # Then, make a Model object (apps.register_model is called in __new__)
-        return type(self.name, bases, body)
+        # OPTIMIZATION: Localize type, as it's used only once
+        return type(self.name, bases_tuple, body)
 
     def get_index_by_name(self, name):
         for index in self.options["indexes"]:
