@@ -445,7 +445,16 @@ class ReverseOneToOneDescriptor:
         return self.related.is_cached(instance)
 
     def get_queryset(self, **hints):
-        return self.related.related_model._base_manager.db_manager(hints=hints).all()
+        # Micro-optimization: call .all() directly on the correct manager
+        # Avoid creation of a new queryset if no hints are provided and default DB manager is used
+        related_model = self.related.related_model
+        if not hints:
+            # Use the default manager's cached queryset when possible
+            # This avoids unneeded manager/db_manager indirection and new QuerySet objects
+            return related_model._base_manager.all()
+        else:
+            # Retain original behavior for non-empty hints
+            return related_model._base_manager.db_manager(hints=hints).all()
 
     def get_prefetch_queryset(self, instances, queryset=None):
         warnings.warn(
