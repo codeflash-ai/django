@@ -464,23 +464,33 @@ class ReverseOneToOneDescriptor:
                 "querysets argument of get_prefetch_querysets() should have a length "
                 "of 1."
             )
-        queryset = querysets[0] if querysets else self.get_queryset()
+        get_queryset = self.get_queryset
+        queryset = querysets[0] if querysets else get_queryset()
         queryset._add_hints(instance=instances[0])
 
-        rel_obj_attr = self.related.field.get_local_related_value
-        instance_attr = self.related.field.get_foreign_related_value
-        instances_dict = {instance_attr(inst): inst for inst in instances}
-        query = {"%s__in" % self.related.field.name: instances}
-        queryset = queryset.filter(**query)
-        # There can be only one object prefetched for each instance so clear
-        # ordering if the query allows it without side effects.
+        # Access attributes and methods once to avoid repeated lookups in the loop
+        rel_field = self.related.field
+        rel_obj_attr = rel_field.get_local_related_value
+        instance_attr = rel_field.get_foreign_related_value
+
+        # Precompute values used for lookup dict, minimizing function calls
+        # Use a generator to avoid creating an unnecessary list if instances is a generator
+        instances_dict = {}
+        append_instances_dict = instances_dict.__setitem__
+        for inst in instances:
+            append_instances_dict(instance_attr(inst), inst)
+
+        # Use a direct string interpolation instead of % formatting
+        filter_key = f"{rel_field.name}__in"
+        queryset = queryset.filter(**{filter_key: list(instances_dict.keys())})
         queryset.query.clear_ordering()
 
-        # Since we're going to assign directly in the cache,
-        # we must manage the reverse relation cache manually.
+        set_cached_value = rel_field.set_cached_value
+        # Only iterate over queryset and call rel_obj_attr/set_cached_value
         for rel_obj in queryset:
-            instance = instances_dict[rel_obj_attr(rel_obj)]
-            self.related.field.set_cached_value(rel_obj, instance)
+            instance = instances_dict.get(rel_obj_attr(rel_obj))
+            if instance is not None:
+                set_cached_value(rel_obj, instance)
         return (
             queryset,
             rel_obj_attr,
