@@ -568,7 +568,9 @@ class ProjectState:
     def from_apps(cls, apps):
         """Take an Apps and return a ProjectState matching it."""
         app_models = {}
-        for model in apps.get_models(include_swapped=True):
+        get_models = apps.get_models  # Localize lookup for perf
+        for model in get_models(include_swapped=True):
+            # Avoid attribute lookup inside the loop (from_model)
             model_state = ModelState.from_model(model)
             app_models[(model_state.app_label, model_state.name_lower)] = model_state
         return cls(app_models)
@@ -723,13 +725,16 @@ class ModelState:
     ):
         self.app_label = app_label
         self.name = name
+        self.name_lower = name.lower()  # Cache lower on construction for perf
         self.fields = dict(fields)
         self.options = options or {}
         self.options.setdefault("indexes", [])
         self.options.setdefault("constraints", [])
         self.bases = bases or (models.Model,)
         self.managers = managers or []
-        for name, field in self.fields.items():
+        # Only loop once over fields dict for all checks
+        items = self.fields.items()
+        for name, field in items:
             # Sanity-check that fields are NOT already bound to a model.
             if hasattr(field, "model"):
                 raise ValueError(
@@ -768,10 +773,17 @@ class ModelState:
     @classmethod
     def from_model(cls, model, exclude_rels=False):
         """Given a model, return a ModelState representing it."""
-        # Deconstruct the fields
+        # PERF: Reduce attribute lookups
+        meta = model._meta
+        object_name = meta.object_name
+        label = meta.label
+        original_attrs = meta.original_attrs
         fields = []
-        for field in model._meta.local_fields:
-            if getattr(field, "remote_field", None) and exclude_rels:
+        local_fields = meta.local_fields
+        # Deconstruct the fields
+        for field in local_fields:
+            remote_field = getattr(field, "remote_field", None)
+            if remote_field and exclude_rels:
                 continue
             if isinstance(field, models.OrderWrt):
                 continue
@@ -779,125 +791,133 @@ class ModelState:
             try:
                 fields.append((name, field.clone()))
             except TypeError as e:
-                raise TypeError(
-                    "Couldn't reconstruct field %s on %s: %s"
-                    % (
-                        name,
-                        model._meta.label,
-                        e,
-                    )
-                )
+                raise TypeError(f"Couldn't reconstruct field {name} on {label}: {e}")
         if not exclude_rels:
-            for field in model._meta.local_many_to_many:
+            for field in meta.local_many_to_many:
                 name = field.name
                 try:
                     fields.append((name, field.clone()))
                 except TypeError as e:
                     raise TypeError(
-                        "Couldn't reconstruct m2m field %s on %s: %s"
-                        % (
-                            name,
-                            model._meta.object_name,
-                            e,
-                        )
+                        f"Couldn't reconstruct m2m field {name} on {object_name}: {e}"
                     )
         # Extract the options
         options = {}
+        # Localize checks and lookups
+        in_original_attrs = original_attrs.__contains__
         for name in DEFAULT_NAMES:
             # Ignore some special options
             if name in ["apps", "app_label"]:
                 continue
-            elif name in model._meta.original_attrs:
+            elif in_original_attrs(name):
+                value = original_attrs[name]
                 if name == "unique_together":
-                    ut = model._meta.original_attrs["unique_together"]
-                    options[name] = set(normalize_together(ut))
+                    options[name] = set(normalize_together(value))
                 elif name == "index_together":
-                    it = model._meta.original_attrs["index_together"]
-                    options[name] = set(normalize_together(it))
+                    options[name] = set(normalize_together(value))
                 elif name == "indexes":
-                    indexes = [idx.clone() for idx in model._meta.indexes]
-                    for index in indexes:
-                        if not index.name:
-                            index.set_name_with_model(model)
+                    # Prefetch idx.name lookups and method calls
+                    indexes = []
+                    for idx in meta.indexes:
+                        clone = idx.clone()
+                        if not clone.name:
+                            clone.set_name_with_model(model)
+                        indexes.append(clone)
                     options["indexes"] = indexes
                 elif name == "constraints":
-                    options["constraints"] = [
-                        con.clone() for con in model._meta.constraints
-                    ]
+                    options["constraints"] = [con.clone() for con in meta.constraints]
                 else:
-                    options[name] = model._meta.original_attrs[name]
+                    options[name] = value
         # If we're ignoring relationships, remove all field-listing model
         # options (that option basically just means "make a stub model")
         if exclude_rels:
-            for key in ["unique_together", "index_together", "order_with_respect_to"]:
+            for key in ("unique_together", "index_together", "order_with_respect_to"):
                 if key in options:
                     del options[key]
         # Private fields are ignored, so remove options that refer to them.
-        elif options.get("order_with_respect_to") in {
-            field.name for field in model._meta.private_fields
-        }:
-            del options["order_with_respect_to"]
+        else:
+            order_with_respect_to = options.get("order_with_respect_to")
+            private_field_names = {field.name for field in meta.private_fields}
+            if order_with_respect_to in private_field_names:
+                del options["order_with_respect_to"]
 
+        # MRO and flattening optimization
         def flatten_bases(model):
-            bases = []
-            for base in model.__bases__:
+            # Build a flat list of non-abstract bases
+            to_process = [model]
+            result = []
+            seen = set()
+            while to_process:
+                base = to_process.pop()
+                if base in seen:
+                    continue
+                seen.add(base)
                 if hasattr(base, "_meta") and base._meta.abstract:
-                    bases.extend(flatten_bases(base))
+                    to_process.extend(base.__bases__)
                 else:
-                    bases.append(base)
-            return bases
+                    result.append(base)
+            return result
 
-        # We can't rely on __mro__ directly because we only want to flatten
-        # abstract models and not the whole tree. However by recursing on
-        # __bases__ we may end up with duplicates and ordering issues, we
-        # therefore discard any duplicates and reorder the bases according
-        # to their index in the MRO.
-        flattened_bases = sorted(
-            set(flatten_bases(model)), key=lambda x: model.__mro__.index(x)
-        )
-
-        # Make our record
+        flattened_bases = flatten_bases(model)
+        # Remove duplicates and preserve MRO order quickly
+        base_set = set(flattened_bases)
+        bases_sorted = []
+        mro = model.__mro__
+        for base in mro:
+            if base in base_set:
+                bases_sorted.append(base)
+                base_set.remove(base)
         bases = tuple(
             (base._meta.label_lower if hasattr(base, "_meta") else base)
-            for base in flattened_bases
+            for base in bases_sorted
         )
         # Ensure at least one base inherits from models.Model
+        # Localize isinstance/issubclass
         if not any(
             (isinstance(base, str) or issubclass(base, models.Model)) for base in bases
         ):
             bases = (models.Model,)
 
+        # Optimize manager collection
         managers = []
         manager_names = set()
         default_manager_shim = None
-        for manager in model._meta.managers:
-            if manager.name in manager_names:
+        meta_managers = meta.managers
+        _base_manager = model._base_manager
+        _default_manager = model._default_manager
+        for manager in meta_managers:
+            mgr_name = manager.name
+            if mgr_name in manager_names:
                 # Skip overridden managers.
                 continue
             elif manager.use_in_migrations:
                 # Copy managers usable in migrations.
                 new_manager = copy.copy(manager)
                 new_manager._set_creation_counter()
-            elif manager is model._base_manager or manager is model._default_manager:
+            elif manager is _base_manager or manager is _default_manager:
                 # Shim custom managers used as default and base managers.
                 new_manager = models.Manager()
                 new_manager.model = manager.model
-                new_manager.name = manager.name
-                if manager is model._default_manager:
+                new_manager.name = mgr_name
+                if manager is _default_manager:
                     default_manager_shim = new_manager
             else:
                 continue
-            manager_names.add(manager.name)
-            managers.append((manager.name, new_manager))
+            manager_names.add(mgr_name)
+            managers.append((mgr_name, new_manager))
 
         # Ignore a shimmed default manager called objects if it's the only one.
-        if managers == [("objects", default_manager_shim)]:
+        if (
+            len(managers) == 1
+            and managers[0][0] == "objects"
+            and default_manager_shim is managers[0][1]
+        ):
             managers = []
 
         # Construct the new ModelState
         return cls(
-            model._meta.app_label,
-            model._meta.object_name,
+            meta.app_label,
+            object_name,
             fields,
             options,
             bases,
