@@ -231,7 +231,7 @@ def is_naive(value):
     Assuming value.tzinfo is either None or a proper datetime.tzinfo,
     value.utcoffset() implements the appropriate logic.
     """
-    return value.utcoffset() is None
+    return value.tzinfo is None
 
 
 def make_aware(value, timezone=None):
