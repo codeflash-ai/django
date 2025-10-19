@@ -29,7 +29,12 @@ def decoder(conv_func):
     """
     Convert bytestrings from Python's sqlite3 interface to a regular string.
     """
-    return lambda s: conv_func(s.decode())
+
+    def decode_and_convert(s):
+        # Directly pass the result of bytes.decode() to conv_func
+        return conv_func(s.decode())
+
+    return decode_and_convert
 
 
 def adapt_date(val):
