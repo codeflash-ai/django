@@ -159,7 +159,7 @@ class RawQuery:
         return self.clone(using)
 
     def clone(self, using):
-        return RawQuery(self.sql, using, params=self.params)
+        return RawQuery(self.sql, using, self.params)
 
     def get_columns(self):
         if self.cursor is None:
