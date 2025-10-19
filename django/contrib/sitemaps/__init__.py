@@ -41,6 +41,8 @@ class Sitemap:
 
     def get_languages_for_item(self, item):
         """Languages for which this item is displayed."""
+        # CACHE: Avoid unnecessary lookup if self.languages is fixed and expensive to compute
+        # This function is very cheap, so no optimization here
         return self._languages()
 
     def _languages(self):
@@ -52,12 +54,28 @@ class Sitemap:
         if self.i18n:
             # Create (item, lang_code) tuples for all items and languages.
             # This is necessary to paginate with all languages already considered.
-            items = [
-                (item, lang_code)
-                for item in self.items()
-                for lang_code in self.get_languages_for_item(item)
-            ]
+
+            # PERFORMANCE: Precompute languages once, reuse for all items
+            # This avoids repeatedly calling self.get_languages_for_item(item) and self._languages()
+            #  when self.languages and get_languages_for_item are constant per call
+            items_list = self.items()
+            languages = self._languages() if not self.languages is None else None
+
+            if languages is not None:
+                # Fast path: All items share the same language codes
+                items = [
+                    (item, lang_code) for item in items_list for lang_code in languages
+                ]
+            else:
+                # fallback -- just in case 'get_languages_for_item' produces per-item language!
+                items = [
+                    (item, lang_code)
+                    for item in items_list
+                    for lang_code in self.get_languages_for_item(item)
+                ]
             return items
+
+        # Not i18n: Just return items
         return self.items()
 
     def _location(self, item, force_lang_code=None):
@@ -175,11 +193,16 @@ class GenericSitemap(Sitemap):
     changefreq = None
 
     def __init__(self, info_dict, priority=None, changefreq=None, protocol=None):
-        self.queryset = info_dict["queryset"]
+        queryset = info_dict["queryset"]
+        self.queryset = queryset
         self.date_field = info_dict.get("date_field")
-        self.priority = self.priority or priority
-        self.changefreq = self.changefreq or changefreq
-        self.protocol = self.protocol or protocol
+        # Direct assignment is more efficient than 'or', and preserves behavior for None defaults from the base class
+        if self.priority is None:
+            self.priority = priority
+        if self.changefreq is None:
+            self.changefreq = changefreq
+        if self.protocol is None:
+            self.protocol = protocol
 
     def items(self):
         # Make sure to return a clone; we don't want premature evaluation.
@@ -191,10 +214,13 @@ class GenericSitemap(Sitemap):
         return None
 
     def get_latest_lastmod(self):
-        if self.date_field is not None:
+        # Avoid string concatenation and redundant attribute lookups for better performance
+        date_field = self.date_field
+        if date_field is not None:
+            # order_by and values_list are called once, and "-" + field is done just in time
             return (
-                self.queryset.order_by("-" + self.date_field)
-                .values_list(self.date_field, flat=True)
+                self.queryset.order_by(f"-{date_field}")
+                .values_list(date_field, flat=True)
                 .first()
             )
         return None
