@@ -11,6 +11,10 @@ from urllib.parse import urlparse
 from django.utils.datastructures import MultiValueDict
 from django.utils.regex_helper import _lazy_re_compile
 
+_unicodedata_category = unicodedata.category
+
+_VALID_SCHEMES = {False: {"http", "https"}, True: {"https"}}
+
 # Based on RFC 9110 Appendix A.
 ETAG_MATCH = _lazy_re_compile(
     r"""
@@ -213,10 +217,15 @@ def quote_etag(etag_str):
     If the provided string is already a quoted ETag, return it. Otherwise, wrap
     the string in quotes, making it a strong ETag.
     """
-    if ETAG_MATCH.match(etag_str):
-        return etag_str
-    else:
-        return '"%s"' % etag_str
+    # Fast check: if it looks like a quoted ETag, verify with regex
+    if (
+        etag_str
+        and etag_str[-1] == '"'
+        and (etag_str[0] == '"' or etag_str.startswith('W/"'))
+    ):
+        if ETAG_MATCH.match(etag_str):
+            return etag_str
+    return '"%s"' % etag_str
 
 
 def is_same_domain(host, pattern):
@@ -256,16 +265,22 @@ def url_has_allowed_host_and_scheme(url, allowed_hosts, require_https=False):
         url = url.strip()
     if not url:
         return False
+    # allowed_hosts conversion optimized to minimize work in common (happy) path
     if allowed_hosts is None:
         allowed_hosts = set()
     elif isinstance(allowed_hosts, str):
         allowed_hosts = {allowed_hosts}
-    # Chrome treats \ completely as / in paths but it could be part of some
-    # basic auth credentials so we need to check both URLs.
+    # Avoid unnecessary URL parsing if URLs are clearly identical.
+    url_replaced = url.replace("\\", "/")
+    # Avoid calling twice if no backslash present.
+    if url == url_replaced:
+        return _url_has_allowed_host_and_scheme(
+            url, allowed_hosts, require_https=require_https
+        )
     return _url_has_allowed_host_and_scheme(
         url, allowed_hosts, require_https=require_https
     ) and _url_has_allowed_host_and_scheme(
-        url.replace("\\", "/"), allowed_hosts, require_https=require_https
+        url_replaced, allowed_hosts, require_https=require_https
     )
 
 
@@ -287,14 +302,19 @@ def _url_has_allowed_host_and_scheme(url, allowed_hosts, require_https=False):
     # Forbid URLs that start with control characters. Some browsers (like
     # Chrome) ignore quite a few control characters at the start of a
     # URL and might consider the URL as scheme relative.
-    if unicodedata.category(url[0])[0] == "C":
+    # Use the cached function for slightly faster lookup.
+    if _unicodedata_category(url[0])[0] == "C":
         return False
     scheme = url_info.scheme
     # Consider URLs without a scheme (e.g. //example.com/p) to be http.
-    if not url_info.scheme and url_info.netloc:
+    if not scheme and url_info.netloc:
         scheme = "http"
-    valid_schemes = ["https"] if require_https else ["http", "https"]
-    return (not url_info.netloc or url_info.netloc in allowed_hosts) and (
+    # Use set lookup (O(1)) rather than 'in' list (O(n)), and share set for all calls
+    valid_schemes = _VALID_SCHEMES[require_https]
+    # Inline guard: avoiding repeated attribute lookups
+    netloc = url_info.netloc
+    # If netloc is empty, allow; else, check set membership
+    return (not netloc or netloc in allowed_hosts) and (
         not scheme or scheme in valid_schemes
     )
 
