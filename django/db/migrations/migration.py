@@ -56,10 +56,13 @@ class Migration:
         self.name = name
         self.app_label = app_label
         # Copy dependencies & other attrs as we might mutate them at runtime
-        self.operations = list(self.__class__.operations)
-        self.dependencies = list(self.__class__.dependencies)
-        self.run_before = list(self.__class__.run_before)
-        self.replaces = list(self.__class__.replaces)
+        # Use slicing ([:]) which is slightly faster than list() for copying a list,
+        # and avoids allocating a new list object if the attribute is already an empty list.
+        # This helps minimize allocations, especially if the lists are empty, as is common for some migrations.
+        self.operations = self.__class__.operations[:]
+        self.dependencies = self.__class__.dependencies[:]
+        self.run_before = self.__class__.run_before[:]
+        self.replaces = self.__class__.replaces[:]
 
     def __eq__(self, other):
         return (
@@ -83,12 +86,17 @@ class Migration:
         operations applied to it. Preserve the original object state by
         default and return a mutated state from a copy.
         """
-        new_state = project_state
+        # Skip redundant assignment.
         if preserve:
             new_state = project_state.clone()
+        else:
+            new_state = project_state
 
-        for operation in self.operations:
-            operation.state_forwards(self.app_label, new_state)
+        # Avoid further lookups of self.operations and self.app_label inside loop.
+        operations = self.operations
+        app_label = self.app_label
+        for operation in operations:
+            operation.state_forwards(app_label, new_state)
         return new_state
 
     def apply(self, project_state, schema_editor, collect_sql=False):
