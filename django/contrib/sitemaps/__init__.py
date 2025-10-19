@@ -106,13 +106,16 @@ class Sitemap:
     def get_latest_lastmod(self):
         if not hasattr(self, "lastmod"):
             return None
-        if callable(self.lastmod):
+        lastmod = self.lastmod
+        if callable(lastmod):
             try:
-                return max([self.lastmod(item) for item in self.items()], default=None)
+                iterator = self.items()
+                # Use generator expression for better memory efficiency
+                return max((lastmod(item) for item in iterator), default=None)
             except TypeError:
                 return None
         else:
-            return self.lastmod
+            return lastmod
 
     def _urls(self, page, protocol, domain):
         urls = []
@@ -175,11 +178,16 @@ class GenericSitemap(Sitemap):
     changefreq = None
 
     def __init__(self, info_dict, priority=None, changefreq=None, protocol=None):
-        self.queryset = info_dict["queryset"]
+        queryset = info_dict["queryset"]
+        self.queryset = queryset
         self.date_field = info_dict.get("date_field")
-        self.priority = self.priority or priority
-        self.changefreq = self.changefreq or changefreq
-        self.protocol = self.protocol or protocol
+        # Direct assignment is more efficient than 'or', and preserves behavior for None defaults from the base class
+        if self.priority is None:
+            self.priority = priority
+        if self.changefreq is None:
+            self.changefreq = changefreq
+        if self.protocol is None:
+            self.protocol = protocol
 
     def items(self):
         # Make sure to return a clone; we don't want premature evaluation.
@@ -191,10 +199,13 @@ class GenericSitemap(Sitemap):
         return None
 
     def get_latest_lastmod(self):
-        if self.date_field is not None:
+        # Avoid string concatenation and redundant attribute lookups for better performance
+        date_field = self.date_field
+        if date_field is not None:
+            # order_by and values_list are called once, and "-" + field is done just in time
             return (
-                self.queryset.order_by("-" + self.date_field)
-                .values_list(self.date_field, flat=True)
+                self.queryset.order_by(f"-{date_field}")
+                .values_list(date_field, flat=True)
                 .first()
             )
         return None
