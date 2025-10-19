@@ -59,11 +59,14 @@ EXPLAIN_OPTIONS_PATTERN = _lazy_re_compile(r"[\w-]+")
 def get_field_names_from_opts(opts):
     if opts is None:
         return set()
-    return set(
-        chain.from_iterable(
-            (f.name, f.attname) if f.concrete else (f.name,) for f in opts.get_fields()
-        )
-    )
+    fields = opts.get_fields()
+    # Avoid chain.from_iterable and tuple creation
+    result = set()
+    for f in fields:
+        result.add(f.name)
+        if f.concrete:
+            result.add(f.attname)
+    return result
 
 
 def get_paths_from_expression(expr):
