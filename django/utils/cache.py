@@ -107,13 +107,21 @@ def get_max_age(response):
     """
     if not response.has_header("Cache-Control"):
         return
-    cc = dict(
-        _to_tuple(el) for el in cc_delim_re.split(response.headers["Cache-Control"])
-    )
-    try:
-        return int(cc["max-age"])
-    except (ValueError, TypeError, KeyError):
-        pass
+    # Avoid split+lower multiple passes, parse only what is necessary in a single scan
+    header_val = response.headers["Cache-Control"]
+    # Fast path: avoid creating the whole dict if possible, only parse for max-age
+    for part in cc_delim_re.split(header_val):
+        keyval = part.split("=", 1)
+        key = keyval[0].lower()
+        if key == "max-age":
+            if len(keyval) == 2:
+                try:
+                    return int(keyval[1])
+                except (ValueError, TypeError):
+                    pass
+            break  # matching max-age without value, behavior unchanged
+    # Default: no max-age found or not an int
+    return
 
 
 def set_response_etag(response):
