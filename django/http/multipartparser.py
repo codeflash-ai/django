@@ -658,17 +658,20 @@ class BoundaryIter:
         index = data.find(self._boundary)
         if index < 0:
             return None
-        else:
-            end = index
-            next = index + len(self._boundary)
-            # backup over CRLF
-            last = max(0, end - 1)
-            if data[last : last + 1] == b"\n":
-                end -= 1
-            last = max(0, end - 1)
-            if data[last : last + 1] == b"\r":
-                end -= 1
-            return end, next
+
+        end = index
+        boundary_len = len(self._boundary)
+        next_pos = index + boundary_len
+
+        # Backup and slice in one pass to check for CRLF sequences,
+        # optimize by direct access and avoiding slice allocations when possible.
+        # All logic and behavior preserved exactly.
+        if end >= 1 and data[end - 1] == 0x0A:  # b'\n'
+            end -= 1
+        if end >= 1 and data[end - 1] == 0x0D:  # b'\r'
+            end -= 1
+
+        return end, next_pos
 
 
 def exhaust(stream_or_iterable):
