@@ -175,26 +175,38 @@ class GenericSitemap(Sitemap):
     changefreq = None
 
     def __init__(self, info_dict, priority=None, changefreq=None, protocol=None):
-        self.queryset = info_dict["queryset"]
+        queryset = info_dict["queryset"]
+        self.queryset = queryset
         self.date_field = info_dict.get("date_field")
-        self.priority = self.priority or priority
-        self.changefreq = self.changefreq or changefreq
-        self.protocol = self.protocol or protocol
+        # Use direct attribute reference only once
+        priority_is_none = self.priority is None
+        changefreq_is_none = self.changefreq is None
+        protocol_is_none = self.protocol is None
+        if priority_is_none:
+            self.priority = priority
+        if changefreq_is_none:
+            self.changefreq = changefreq
+        if protocol_is_none:
+            self.protocol = protocol
 
     def items(self):
         # Make sure to return a clone; we don't want premature evaluation.
         return self.queryset.filter()
 
     def lastmod(self, item):
-        if self.date_field is not None:
-            return getattr(item, self.date_field)
+        date_field = self.date_field
+        if date_field is not None:
+            return getattr(item, date_field)
         return None
 
     def get_latest_lastmod(self):
-        if self.date_field is not None:
+        # Avoid string concatenation and redundant attribute lookups for better performance
+        date_field = self.date_field
+        if date_field is not None:
+            # order_by and values_list are called once, and "-" + field is done just in time
             return (
-                self.queryset.order_by("-" + self.date_field)
-                .values_list(self.date_field, flat=True)
+                self.queryset.order_by(f"-{date_field}")
+                .values_list(date_field, flat=True)
                 .first()
             )
         return None
