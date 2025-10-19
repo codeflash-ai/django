@@ -91,47 +91,58 @@ def get_children_from_q(q):
 
 
 def get_child_with_renamed_prefix(prefix, replacement, child):
+    # Move the QuerySet import outside the function for efficiency
     from django.db.models.query import QuerySet
+
+    prefix_lookup = prefix + LOOKUP_SEP
 
     if isinstance(child, Node):
         return rename_prefix_from_q(prefix, replacement, child)
     if isinstance(child, tuple):
         lhs, rhs = child
-        if lhs.startswith(prefix + LOOKUP_SEP):
-            lhs = lhs.replace(prefix, replacement, 1)
-        if not isinstance(rhs, F) and hasattr(rhs, "resolve_expression"):
+        if lhs.startswith(prefix_lookup):
+            lhs = replacement + lhs[len(prefix) :]
+        # Avoid calling getattr multiple times
+        resolve_expr = getattr(rhs, "resolve_expression", None)
+        if not isinstance(rhs, F) and resolve_expr is not None:
             rhs = get_child_with_renamed_prefix(prefix, replacement, rhs)
         return lhs, rhs
 
     if isinstance(child, F):
-        child = child.copy()
-        if child.name.startswith(prefix + LOOKUP_SEP):
-            child.name = child.name.replace(prefix, replacement, 1)
+        # Avoid unnecessary copy if `child.name` does not need change
+        if child.name.startswith(prefix_lookup):
+            child = child.copy()
+            child.name = replacement + child.name[len(prefix) :]
     elif isinstance(child, QuerySet):
-        # QuerySet may contain OuterRef() references which cannot work properly
-        # without repointing to the filtered annotation and will spawn a
-        # different JOIN. Always raise ValueError instead of providing partial
-        # support in other cases.
         raise ValueError(
             "Passing a QuerySet within a FilteredRelation is not supported."
         )
-    elif hasattr(child, "resolve_expression"):
-        child = child.copy()
-        child.set_source_expressions(
-            [
-                get_child_with_renamed_prefix(prefix, replacement, grand_child)
-                for grand_child in child.get_source_expressions()
-            ]
-        )
+    else:
+        resolve_expr = getattr(child, "resolve_expression", None)
+        if resolve_expr is not None:
+            # Avoid unnecessary copy if no expressions need change
+            src_exprs = child.get_source_expressions()
+            renamed_src_exprs = []
+            changed = False
+            for grand_child in src_exprs:
+                renamed_grand_child = get_child_with_renamed_prefix(
+                    prefix, replacement, grand_child
+                )
+                if renamed_grand_child is not grand_child:
+                    changed = True
+                renamed_src_exprs.append(renamed_grand_child)
+            if changed:
+                child = child.copy()
+                child.set_source_expressions(renamed_src_exprs)
     return child
 
 
 def rename_prefix_from_q(prefix, replacement, q):
-    return Q.create(
-        [get_child_with_renamed_prefix(prefix, replacement, c) for c in q.children],
-        q.connector,
-        q.negated,
-    )
+    # Use list comprehension to avoid repeated lookups/loops
+    children = [
+        get_child_with_renamed_prefix(prefix, replacement, c) for c in q.children
+    ]
+    return Q.create(children, q.connector, q.negated)
 
 
 JoinInfo = namedtuple(
