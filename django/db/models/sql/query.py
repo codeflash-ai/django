@@ -156,7 +156,7 @@ class RawQuery:
         self.annotation_select = {}
 
     def chain(self, using):
-        return self.clone(using)
+        return RawQuery(self.sql, using, params=self.params)
 
     def clone(self, using):
         return RawQuery(self.sql, using, params=self.params)
