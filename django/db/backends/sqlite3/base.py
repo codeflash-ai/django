@@ -148,15 +148,17 @@ class DatabaseWrapper(BaseDatabaseWrapper):
 
     def get_connection_params(self):
         settings_dict = self.settings_dict
-        if not settings_dict["NAME"]:
+        name = settings_dict["NAME"]  # Avoid repeated dict access
+        if not name:
             raise ImproperlyConfigured(
                 "settings.DATABASES is improperly configured. "
                 "Please supply the NAME value."
             )
+        options = settings_dict["OPTIONS"]
         kwargs = {
-            "database": settings_dict["NAME"],
+            "database": name,
             "detect_types": Database.PARSE_DECLTYPES | Database.PARSE_COLNAMES,
-            **settings_dict["OPTIONS"],
+            **options,
         }
         # Always allow the underlying SQLite connection to be shareable
         # between multiple threads. The safe-guarding will be handled at a
@@ -164,7 +166,8 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         # property. This is necessary as the shareability is disabled by
         # default in sqlite3 and it cannot be changed once a connection is
         # opened.
-        if "check_same_thread" in kwargs and kwargs["check_same_thread"]:
+        check_same_thread = kwargs.get("check_same_thread")
+        if check_same_thread:
             warnings.warn(
                 "The `check_same_thread` option was provided and set to "
                 "True. It will be overridden with False. Use the "
@@ -172,14 +175,18 @@ class DatabaseWrapper(BaseDatabaseWrapper):
                 "for controlling thread shareability.",
                 RuntimeWarning,
             )
-        kwargs.update({"check_same_thread": False, "uri": True})
+        # Avoid multiple dictionary updates
+        kwargs["check_same_thread"] = False
+        kwargs["uri"] = True
+
         transaction_mode = kwargs.pop("transaction_mode", None)
         if (
             transaction_mode is not None
             and transaction_mode.upper() not in self.transaction_modes
         ):
+            # Use generator expression instead of list comprehension
             allowed_transaction_modes = ", ".join(
-                [f"{mode!r}" for mode in sorted(self.transaction_modes)]
+                f"{mode!r}" for mode in sorted(self.transaction_modes)
             )
             raise ImproperlyConfigured(
                 f"settings.DATABASES[{self.alias!r}]['OPTIONS']['transaction_mode'] "
@@ -189,7 +196,8 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         self.transaction_mode = transaction_mode.upper() if transaction_mode else None
 
         init_command = kwargs.pop("init_command", "")
-        self.init_commands = init_command.split(";")
+        # Use str.split only if the string is non-empty for memory efficiency
+        self.init_commands = init_command.split(";") if init_command else []
         return kwargs
 
     def get_database_version(self):
