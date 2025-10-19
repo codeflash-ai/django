@@ -3,13 +3,9 @@ import logging
 from asgiref.sync import iscoroutinefunction, markcoroutinefunction
 
 from django.core.exceptions import ImproperlyConfigured
-from django.http import (
-    HttpResponse,
-    HttpResponseGone,
-    HttpResponseNotAllowed,
-    HttpResponsePermanentRedirect,
-    HttpResponseRedirect,
-)
+from django.http import (HttpResponse, HttpResponseGone,
+                         HttpResponseNotAllowed, HttpResponsePermanentRedirect,
+                         HttpResponseRedirect)
 from django.template.response import TemplateResponse
 from django.urls import reverse
 from django.utils.decorators import classonlymethod
@@ -208,13 +204,13 @@ class TemplateResponseMixin:
         Return a list of template names to be used for the request. Must return
         a list. May not be called if render_to_response() is overridden.
         """
-        if self.template_name is None:
+        template_name = self.template_name
+        if template_name is None:
             raise ImproperlyConfigured(
                 "TemplateResponseMixin requires either a definition of "
                 "'template_name' or an implementation of 'get_template_names()'"
             )
-        else:
-            return [self.template_name]
+        return [template_name]
 
 
 class TemplateView(TemplateResponseMixin, ContextMixin, View):

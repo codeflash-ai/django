@@ -130,38 +130,31 @@ class SingleObjectTemplateResponseMixin(TemplateResponseMixin):
             # If template_name isn't specified, it's not a problem --
             # we just start with an empty list.
             names = []
+            obj = getattr(self, "object", None)
+            template_name_field = self.template_name_field
 
             # If self.template_name_field is set, grab the value of the field
             # of that name from the object; this is the most specific template
             # name, if given.
-            if self.object and self.template_name_field:
-                name = getattr(self.object, self.template_name_field, None)
+            if obj is not None and template_name_field:
+                name = getattr(obj, template_name_field, None)
                 if name:
                     names.insert(0, name)
 
             # The least-specific option is the default <app>/<model>_detail.html;
             # only use this if the object in question is a model.
-            if isinstance(self.object, models.Model):
-                object_meta = self.object._meta
+            if isinstance(obj, models.Model):
+                meta = obj._meta
                 names.append(
-                    "%s/%s%s.html"
-                    % (
-                        object_meta.app_label,
-                        object_meta.model_name,
-                        self.template_name_suffix,
-                    )
+                    f"{meta.app_label}/{meta.model_name}{self.template_name_suffix}.html"
                 )
-            elif getattr(self, "model", None) is not None and issubclass(
-                self.model, models.Model
-            ):
-                names.append(
-                    "%s/%s%s.html"
-                    % (
-                        self.model._meta.app_label,
-                        self.model._meta.model_name,
-                        self.template_name_suffix,
+            else:
+                model_cls = getattr(self, "model", None)
+                if model_cls is not None and issubclass(model_cls, models.Model):
+                    meta = model_cls._meta
+                    names.append(
+                        f"{meta.app_label}/{meta.model_name}{self.template_name_suffix}.html"
                     )
-                )
 
             # If we still haven't managed to find any template names, we should
             # re-raise the ImproperlyConfigured to alert the user.
