@@ -1,4 +1,4 @@
-from functools import wraps
+from functools import lru_cache, wraps
 
 from asgiref.sync import iscoroutinefunction
 
@@ -21,11 +21,7 @@ def cache_page(timeout, *, cache=None, key_prefix=None):
     Additionally, all headers from the response's Vary header will be taken
     into account on caching -- just like the middleware does.
     """
-    return decorator_from_middleware_with_args(CacheMiddleware)(
-        page_timeout=timeout,
-        cache_alias=cache,
-        key_prefix=key_prefix,
-    )
+    return _cached_middleware_decorator(timeout, cache, key_prefix)
 
 
 def _check_request(request, decorator_name):
@@ -82,3 +78,12 @@ def never_cache(view_func):
             return response
 
     return wraps(view_func)(_view_wrapper)
+
+
+@lru_cache(maxsize=128)
+def _cached_middleware_decorator(timeout, cache, key_prefix):
+    return decorator_from_middleware_with_args(CacheMiddleware)(
+        page_timeout=timeout,
+        cache_alias=cache,
+        key_prefix=key_prefix,
+    )
