@@ -36,7 +36,11 @@ class UploadedFile(File):
         charset=None,
         content_type_extra=None,
     ):
-        super().__init__(file, name)
+        if file is None and name is None:
+            self.file = None
+            self.name = None
+        else:
+            super().__init__(file, name)
         self.size = size
         self.content_type = content_type
         self.charset = charset
