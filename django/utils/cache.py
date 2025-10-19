@@ -330,9 +330,17 @@ def has_vary_header(response, header_query):
     """
     if not response.has_header("Vary"):
         return False
-    vary_headers = cc_delim_re.split(response.headers["Vary"])
-    existing_headers = {header.lower() for header in vary_headers}
-    return header_query.lower() in existing_headers
+    # Extract the Vary header and lower case it once before splitting
+    vary_value = response.headers["Vary"]
+    # Lowercase once to avoid making N string copies
+    # Split first to avoid altering delimiter behaviour
+    vary_headers = cc_delim_re.split(vary_value)
+    header_query_lc = header_query.lower()
+    # Compare using a generator for early exit, avoid creating a temporary set/list
+    for header in vary_headers:
+        if header.lower() == header_query_lc:
+            return True
+    return False
 
 
 def _i18n_cache_key_suffix(request, cache_key):
