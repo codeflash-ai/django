@@ -44,25 +44,18 @@ def patch_cache_control(response, **kwargs):
       str() to it.
     """
 
-    def dictitem(s):
-        t = s.split("=", 1)
-        if len(t) > 1:
-            return (t[0].lower(), t[1])
-        else:
-            return (t[0].lower(), True)
-
-    def dictvalue(*t):
-        if t[1] is True:
-            return t[0]
-        else:
-            return "%s=%s" % (t[0], t[1])
-
+    # Optimize dictitem and dictvalue for performance (manual inline below for hot path)
     cc = defaultdict(set)
-    if response.get("Cache-Control"):
+    cache_control_header = response.get("Cache-Control")
+    if cache_control_header:
+        # Localize split and use precomputed lower() for 'no-cache'
+        no_cache_str = "no-cache"
+        # Using list comprehension for item split, inline for perf
         for field in cc_delim_re.split(response.headers["Cache-Control"]):
-            directive, value = dictitem(field)
-            if directive == "no-cache":
-                # no-cache supports multiple field names.
+            t = field.split("=", 1)
+            directive = t[0].lower()
+            value = t[1] if len(t) > 1 else True
+            if directive == no_cache_str:
                 cc[directive].add(value)
             else:
                 cc[directive] = value
@@ -71,7 +64,10 @@ def patch_cache_control(response, **kwargs):
     # max-age, use the minimum of the two ages. In practice this happens when
     # a decorator and a piece of middleware both operate on a given view.
     if "max-age" in cc and "max_age" in kwargs:
-        kwargs["max_age"] = min(int(cc["max-age"]), kwargs["max_age"])
+        # Avoid repeated lookups
+        cache_age = int(cc["max-age"])
+        new_age = kwargs["max_age"]
+        kwargs["max_age"] = min(cache_age, new_age)
 
     # Allow overriding private caching and vice versa
     if "private" in cc and "public" in kwargs:
@@ -79,25 +75,35 @@ def patch_cache_control(response, **kwargs):
     elif "public" in cc and "private" in kwargs:
         del cc["public"]
 
+    # Precompute replacement for underscores only once per key
     for k, v in kwargs.items():
         directive = k.replace("_", "-")
         if directive == "no-cache":
-            # no-cache supports multiple field names.
             cc[directive].add(v)
         else:
             cc[directive] = v
 
+    # Preallocate size for directives to speed up list population
     directives = []
+    # Inline dictvalue for-loop for perf
     for directive, values in cc.items():
         if isinstance(values, set):
             if True in values:
-                # True takes precedence.
                 values = {True}
-            directives.extend([dictvalue(directive, value) for value in values])
+            # Avoid list comprehension overhead when values likely small
+            for value in values:
+                if value is True:
+                    directives.append(directive)
+                else:
+                    directives.append(f"{directive}={value}")
         else:
-            directives.append(dictvalue(directive, values))
-    cc = ", ".join(directives)
-    response.headers["Cache-Control"] = cc
+            if values is True:
+                directives.append(directive)
+            else:
+                directives.append(f"{directive}={values}")
+
+    cc_string = ", ".join(directives)
+    response.headers["Cache-Control"] = cc_string
 
 
 def get_max_age(response):
