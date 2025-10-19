@@ -292,29 +292,15 @@ class Query(BaseExpression):
     def __init__(self, model, alias_cols=True):
         self.model = model
         self.alias_refcount = {}
-        # alias_map is the most important data structure regarding joins.
-        # It's used for recording which joins exist in the query and what
-        # types they are. The key is the alias of the joined table (possibly
-        # the table name) and the value is a Join-like object (see
-        # sql.datastructures.Join for more information).
         self.alias_map = {}
-        # Whether to provide alias to columns during reference resolving.
         self.alias_cols = alias_cols
-        # Sometimes the query contains references to aliases in outer queries (as
-        # a result of split_exclude). Correct alias quoting needs to know these
-        # aliases too.
-        # Map external tables to whether they are aliased.
         self.external_aliases = {}
-        self.table_map = {}  # Maps table names to list of aliases.
+        self.table_map = {}
         self.used_aliases = set()
 
         self.where = WhereNode()
-        # Maps alias -> Annotation Expression.
         self.annotations = {}
-        # These are for extensions. The contents are more or less appended
-        # verbatim to the appropriate clause.
         self.extra = {}  # Maps col_alias -> (col_sql, params).
-
         self._filtered_relations = {}
 
     @property
@@ -379,42 +365,59 @@ class Query(BaseExpression):
         """
         obj = Empty()
         obj.__class__ = self.__class__
-        # Copy references to everything.
-        obj.__dict__ = self.__dict__.copy()
-        # Clone attributes that can't use shallow copy.
-        obj.alias_refcount = self.alias_refcount.copy()
-        obj.alias_map = self.alias_map.copy()
-        obj.external_aliases = self.external_aliases.copy()
-        obj.table_map = self.table_map.copy()
-        obj.where = self.where.clone()
-        obj.annotations = self.annotations.copy()
-        if self.annotation_select_mask is not None:
-            obj.annotation_select_mask = self.annotation_select_mask.copy()
-        if self.combined_queries:
-            obj.combined_queries = tuple(
-                [query.clone() for query in self.combined_queries]
+
+        # Copy the dict, then overwrite the fields that require a real copy/cloning
+        obj_dict = self.__dict__.copy()
+
+        # Shallow copy for simple fields
+        obj_dict["alias_refcount"] = self.alias_refcount.copy()
+        obj_dict["alias_map"] = self.alias_map.copy()
+        obj_dict["external_aliases"] = self.external_aliases.copy()
+        obj_dict["table_map"] = self.table_map.copy()
+        obj_dict["annotations"] = self.annotations.copy()
+        obj_dict["extra"] = self.extra.copy()
+        obj_dict["used_aliases"] = self.used_aliases.copy()
+        obj_dict["_filtered_relations"] = self._filtered_relations.copy()
+
+        # WhereNode.clone is expensive: only clone if it has children
+        where = self.where
+        # If there are no children, can reuse empty (default) WhereNode.
+        if where.children:
+            obj_dict["where"] = where.clone()
+        else:
+            obj_dict["where"] = WhereNode()  # Avoid unnecessary deep logic
+
+        # Only copy those masks if present and not None
+        if getattr(self, "annotation_select_mask", None) is not None:
+            obj_dict["annotation_select_mask"] = self.annotation_select_mask.copy()
+
+        # Optimize tuple copy for combined_queries; only clone if non-empty
+        if getattr(self, "combined_queries", None):
+            # Use generator expression for slight perf/memory
+            obj_dict["combined_queries"] = tuple(
+                query.clone() for query in self.combined_queries
             )
-        # _annotation_select_cache cannot be copied, as doing so breaks the
-        # (necessary) state in which both annotations and
-        # _annotation_select_cache point to the same underlying objects.
-        # It will get re-populated in the cloned queryset the next time it's
-        # used.
-        obj._annotation_select_cache = None
-        obj.extra = self.extra.copy()
-        if self.extra_select_mask is not None:
-            obj.extra_select_mask = self.extra_select_mask.copy()
-        if self._extra_select_cache is not None:
-            obj._extra_select_cache = self._extra_select_cache.copy()
-        if self.select_related is not False:
-            # Use deepcopy because select_related stores fields in nested
-            # dicts.
-            obj.select_related = copy.deepcopy(obj.select_related)
+
+        # Always reset cache as explained
+        obj_dict["_annotation_select_cache"] = None
+
+        if getattr(self, "extra_select_mask", None) is not None:
+            obj_dict["extra_select_mask"] = self.extra_select_mask.copy()
+
+        if getattr(self, "_extra_select_cache", None) is not None:
+            obj_dict["_extra_select_cache"] = self._extra_select_cache.copy()
+
+        if getattr(self, "select_related", False) is not False:
+            # Use copy.deepcopy for select_related as it's a nested dict
+            obj_dict["select_related"] = copy.deepcopy(self.select_related)
+
         if "subq_aliases" in self.__dict__:
-            obj.subq_aliases = self.subq_aliases.copy()
-        obj.used_aliases = self.used_aliases.copy()
-        obj._filtered_relations = self._filtered_relations.copy()
+            obj_dict["subq_aliases"] = self.subq_aliases.copy()
+
         # Clear the cached_property, if it exists.
-        obj.__dict__.pop("base_table", None)
+        obj_dict.pop("base_table", None)
+
+        obj.__dict__ = obj_dict
         return obj
 
     def chain(self, klass=None):
