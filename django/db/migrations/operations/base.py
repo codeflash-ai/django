@@ -58,11 +58,10 @@ class Operation:
         under django.db.migrations), positional arguments, and keyword
         arguments.
         """
-        return (
-            self.__class__.__name__,
-            self._constructor_args[0],
-            self._constructor_args[1],
-        )
+        # Local variable assignment to avoid repeated attribute lookups
+        cls_name = type(self).__name__
+        args, kwargs = self._constructor_args
+        return (cls_name, args, kwargs)
 
     def state_forwards(self, app_label, state):
         """
