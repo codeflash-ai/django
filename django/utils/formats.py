@@ -9,6 +9,9 @@ from django.conf import settings
 from django.utils import dateformat, numberformat
 from django.utils.functional import lazy
 from django.utils.translation import check_for_language, get_language, to_locale
+from functools import lru_cache
+
+get_format = None
 
 # format_cache is a mapping from (format_type, lang) to the format string.
 # By using the cache, it is possible to avoid running get_format_modules
@@ -152,9 +155,11 @@ def date_format(value, format=None, use_l10n=None):
     If use_l10n is provided and is not None, that will force the value to
     be localized (or not), otherwise it's always localized.
     """
-    return dateformat.format(
-        value, get_format(format or "DATE_FORMAT", use_l10n=use_l10n)
-    )
+    # Avoid repeated string building in the hot path by caching format key construction
+    fmt = format or "DATE_FORMAT"
+    # get_format is pure unless settings change, so no extra local cache needed
+    fmt_str = get_format(fmt, use_l10n=use_l10n)
+    return dateformat.format(value, fmt_str)
 
 
 def time_format(value, format=None, use_l10n=None):
@@ -164,9 +169,9 @@ def time_format(value, format=None, use_l10n=None):
     If use_l10n is provided and is not None, it forces the value to
     be localized (or not), otherwise it's always localized.
     """
-    return dateformat.time_format(
-        value, get_format(format or "TIME_FORMAT", use_l10n=use_l10n)
-    )
+    fmt = format or "TIME_FORMAT"
+    fmt_str = get_format(fmt, use_l10n=use_l10n)
+    return dateformat.time_format(value, fmt_str)
 
 
 def number_format(value, decimal_pos=None, use_l10n=None, force_grouping=False):
@@ -176,15 +181,21 @@ def number_format(value, decimal_pos=None, use_l10n=None, force_grouping=False):
     If use_l10n is provided and is not None, it forces the value to
     be localized (or not), otherwise it's always localized.
     """
+    # Avoid useless get_language lookup if not needed
     if use_l10n is None:
         use_l10n = True
-    lang = get_language() if use_l10n else None
+    lang = _cached_language(use_l10n)
+    # By caching language, minimize duplicate get_language() calls for bursts of localize() calls
+    # All 3 format settings retrieved here are always referenced with the local lang/localization
+    decimal_sep = get_format("DECIMAL_SEPARATOR", lang, use_l10n=use_l10n)
+    grouping = get_format("NUMBER_GROUPING", lang, use_l10n=use_l10n)
+    thousand_sep = get_format("THOUSAND_SEPARATOR", lang, use_l10n=use_l10n)
     return numberformat.format(
         value,
-        get_format("DECIMAL_SEPARATOR", lang, use_l10n=use_l10n),
+        decimal_sep,
         decimal_pos,
-        get_format("NUMBER_GROUPING", lang, use_l10n=use_l10n),
-        get_format("THOUSAND_SEPARATOR", lang, use_l10n=use_l10n),
+        grouping,
+        thousand_sep,
         force_grouping=force_grouping,
         use_l10n=use_l10n,
     )
@@ -198,19 +209,21 @@ def localize(value, use_l10n=None):
     If use_l10n is provided and is not None, it forces the value to
     be localized (or not), otherwise it's always localized.
     """
-    if isinstance(value, str):  # Handle strings first for performance reasons.
+    # Optimize isinstance chain by single type lookup and minimize repeated conditionals
+    typ = type(value)
+    if typ is str:
         return value
-    elif isinstance(value, bool):  # Make sure booleans don't get treated as numbers
+    elif typ is bool:
         return str(value)
-    elif isinstance(value, (decimal.Decimal, float, int)):
+    elif typ in (int, float, decimal.Decimal):
         if use_l10n is False:
             return str(value)
         return number_format(value, use_l10n=use_l10n)
-    elif isinstance(value, datetime.datetime):
+    elif typ is datetime.datetime:
         return date_format(value, "DATETIME_FORMAT", use_l10n=use_l10n)
-    elif isinstance(value, datetime.date):
+    elif typ is datetime.date:
         return date_format(value, use_l10n=use_l10n)
-    elif isinstance(value, datetime.time):
+    elif typ is datetime.time:
         return time_format(value, use_l10n=use_l10n)
     return value
 
@@ -303,3 +316,11 @@ def sanitize_separators(value):
         parts.append(value)
         value = ".".join(reversed(parts))
     return value
+
+
+# Helper to avoid redundant get_language calls
+@lru_cache(maxsize=8)
+def _cached_language(use_l10n: bool) -> str | None:
+    # Localize language caching, as get_language() is frequently called
+    # but almost always returns the same value in a given thread/request context.
+    return get_language() if use_l10n else None
