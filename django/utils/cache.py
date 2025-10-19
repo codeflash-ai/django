@@ -151,7 +151,6 @@ def _not_modified(request, response=None):
         ):
             if header in response:
                 new_response.headers[header] = response.headers[header]
-
         # Preserve cookies as per the cookie specification: "If a proxy server
         # receives a response which contains a Set-cookie header, it should
         # propagate the Set-cookie header to the client, regardless of whether
@@ -169,12 +168,12 @@ def get_conditional_response(request, etag=None, last_modified=None, response=No
     # Get HTTP request headers.
     if_match_etags = parse_etags(request.META.get("HTTP_IF_MATCH", ""))
     if_unmodified_since = request.META.get("HTTP_IF_UNMODIFIED_SINCE")
-    if_unmodified_since = if_unmodified_since and parse_http_date_safe(
-        if_unmodified_since
-    )
+    if if_unmodified_since:
+        if_unmodified_since = parse_http_date_safe(if_unmodified_since)
     if_none_match_etags = parse_etags(request.META.get("HTTP_IF_NONE_MATCH", ""))
     if_modified_since = request.META.get("HTTP_IF_MODIFIED_SINCE")
-    if_modified_since = if_modified_since and parse_http_date_safe(if_modified_since)
+    if if_modified_since:
+        if_modified_since = parse_http_date_safe(if_modified_since)
 
     # Evaluation of request preconditions below follows RFC 9110 Section
     # 13.2.2.
@@ -254,9 +253,11 @@ def _if_none_match_passes(target_etag, etags):
     else:
         # The comparison should be weak, so look for a match after stripping
         # off any weak indicators.
-        target_etag = target_etag.strip("W/")
-        etags = (etag.strip("W/") for etag in etags)
-        return target_etag not in etags
+        target_tag = target_etag.strip("W/")
+        for etag in etags:
+            if target_tag == etag.strip("W/"):
+                return False
+        return True
 
 
 def _if_modified_since_passes(last_modified, if_modified_since):
