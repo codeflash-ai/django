@@ -1274,24 +1274,33 @@ class Query(BaseExpression):
         return sql, params
 
     def resolve_lookup_value(self, value, can_reuse, allow_joins, summarize=False):
-        if hasattr(value, "resolve_expression"):
-            value = value.resolve_expression(
+        # Fast path: Most frequent case is "not hasattr(value, 'resolve_expression')" and not a sequence.
+        value_resolve_expr = getattr(value, "resolve_expression", None)
+        if value_resolve_expr is not None:
+            return value_resolve_expr(
                 self,
                 reuse=can_reuse,
                 allow_joins=allow_joins,
                 summarize=summarize,
             )
-        elif isinstance(value, (list, tuple)):
+        # Use exact type matching as an optimization since isinstance checks both tuple and list.
+        value_type = type(value)
+        if value_type is list or value_type is tuple:
             # The items of the iterable may be expressions and therefore need
             # to be resolved independently.
-            values = (
+            # Slightly faster to prepare the result in a list, apply type when building output
+            n = len(value)
+            if n == 0:
+                return value_type()  # preserve empty, returns empty tuple or list
+            resolved = [
                 self.resolve_lookup_value(sub_value, can_reuse, allow_joins, summarize)
                 for sub_value in value
-            )
-            type_ = type(value)
-            if hasattr(type_, "_make"):  # namedtuple
-                return type_(*values)
-            return type_(values)
+            ]
+            if hasattr(value_type, "_make"):  # namedtuple
+                # type(*resolved) for namedtuple
+                return value_type(*resolved)
+            # Avoid generator overhead, use list for list, tuple for tuple
+            return resolved if value_type is list else tuple(resolved)
         return value
 
     def solve_lookup_type(self, lookup, summarize=False):
