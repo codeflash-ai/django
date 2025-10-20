@@ -543,6 +543,7 @@ class ForeignObject(RelatedField):
         swappable=True,
         **kwargs,
     ):
+        # Only initialize rel if not supplied, avoiding unnecessary attribute lookups
         if rel is None:
             rel = self.rel_class(
                 self,
@@ -554,6 +555,7 @@ class ForeignObject(RelatedField):
                 on_delete=on_delete,
             )
 
+        # Directly pass relevant arguments to superclass constructor
         super().__init__(
             rel=rel,
             related_name=related_name,
@@ -562,6 +564,7 @@ class ForeignObject(RelatedField):
             **kwargs,
         )
 
+        # Assign values directly, no changes to original behavior
         self.from_fields = from_fields
         self.to_fields = to_fields
         self.swappable = swappable
@@ -672,31 +675,39 @@ class ForeignObject(RelatedField):
         kwargs["from_fields"] = self.from_fields
         kwargs["to_fields"] = self.to_fields
 
-        if self.remote_field.parent_link:
-            kwargs["parent_link"] = self.remote_field.parent_link
-        if isinstance(self.remote_field.model, str):
-            if "." in self.remote_field.model:
-                app_label, model_name = self.remote_field.model.split(".")
-                kwargs["to"] = "%s.%s" % (app_label, model_name.lower())
+        # Use local var for remote_field to avoid attribute lookup
+        remote_field = self.remote_field
+
+        parent_link = remote_field.parent_link
+        if parent_link:
+            kwargs["parent_link"] = parent_link
+
+        model_val = remote_field.model
+        if isinstance(model_val, str):
+            if "." in model_val:
+                app_label, model_name = model_val.split(".")
+                kwargs["to"] = f"{app_label}.{model_name.lower()}"
             else:
-                kwargs["to"] = self.remote_field.model.lower()
+                kwargs["to"] = model_val.lower()
         else:
-            kwargs["to"] = self.remote_field.model._meta.label_lower
+            kwargs["to"] = model_val._meta.label_lower
+
         # If swappable is True, then see if we're actually pointing to the target
         # of a swap.
         swappable_setting = self.swappable_setting
         if swappable_setting is not None:
             # If it's already a settings reference, error
-            if hasattr(kwargs["to"], "setting_name"):
-                if kwargs["to"].setting_name != swappable_setting:
+            to_arg = kwargs["to"]
+            if hasattr(to_arg, "setting_name"):
+                if to_arg.setting_name != swappable_setting:
                     raise ValueError(
                         "Cannot deconstruct a ForeignKey pointing to a model "
                         "that is swapped in place of more than one model (%s and %s)"
-                        % (kwargs["to"].setting_name, swappable_setting)
+                        % (to_arg.setting_name, swappable_setting)
                     )
             # Set it
             kwargs["to"] = SettingsReference(
-                kwargs["to"],
+                to_arg,
                 swappable_setting,
             )
         return name, path, args, kwargs
@@ -944,8 +955,9 @@ class ForeignKey(ForeignObject):
         db_constraint=True,
         **kwargs,
     ):
+        # Check if 'to' parameter is a model or acceptable value
         try:
-            to._meta.model_name
+            model_name = to._meta.model_name
         except AttributeError:
             if not isinstance(to, str):
                 raise TypeError(
@@ -961,11 +973,15 @@ class ForeignKey(ForeignObject):
             # For backwards compatibility purposes, we need to *try* and set
             # the to_field during FK construction. It won't be guaranteed to
             # be correct until contribute_to_class is called. Refs #12190.
-            to_field = to_field or (to._meta.pk and to._meta.pk.name)
+            if to_field is None:
+                pk = to._meta.pk
+                if pk:
+                    to_field = pk.name
+
         if not callable(on_delete):
             raise TypeError("on_delete must be callable.")
 
-        kwargs["rel"] = self.rel_class(
+        rel_val = self.rel_class(
             self,
             to,
             to_field,
@@ -975,7 +991,11 @@ class ForeignKey(ForeignObject):
             parent_link=parent_link,
             on_delete=on_delete,
         )
-        kwargs.setdefault("db_index", True)
+
+        kwargs["rel"] = rel_val
+        # Use setdefault directly, avoids lookup if already present
+        if "db_index" not in kwargs:
+            kwargs["db_index"] = True
 
         super().__init__(
             to,
@@ -1045,22 +1065,26 @@ class ForeignKey(ForeignObject):
 
     def deconstruct(self):
         name, path, args, kwargs = super().deconstruct()
-        del kwargs["to_fields"]
-        del kwargs["from_fields"]
+        # The following deletes are safe since ForeignKey always sets these in __init__
+        kwargs.pop("to_fields")
+        kwargs.pop("from_fields")
         # Handle the simpler arguments
-        if self.db_index:
-            del kwargs["db_index"]
+        db_index_val = kwargs.get("db_index", True)
+        if db_index_val:
+            kwargs.pop("db_index", None)
         else:
             kwargs["db_index"] = False
         if self.db_constraint is not True:
             kwargs["db_constraint"] = self.db_constraint
+
         # Rel needs more work.
-        to_meta = getattr(self.remote_field.model, "_meta", None)
-        if self.remote_field.field_name and (
-            not to_meta
-            or (to_meta.pk and self.remote_field.field_name != to_meta.pk.name)
+        remote_field = self.remote_field
+        to_meta = getattr(remote_field.model, "_meta", None)
+        field_name = remote_field.field_name
+        if field_name and (
+            not to_meta or (to_meta.pk and field_name != to_meta.pk.name)
         ):
-            kwargs["to_field"] = self.remote_field.field_name
+            kwargs["to_field"] = field_name
         return name, path, args, kwargs
 
     def to_python(self, value):
