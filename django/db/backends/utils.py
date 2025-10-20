@@ -10,6 +10,7 @@ from hashlib import md5
 from django.apps import apps
 from django.db import NotSupportedError
 from django.utils.dateparse import parse_time
+from functools import lru_cache
 
 logger = logging.getLogger("django.db.backends")
 
@@ -199,7 +200,8 @@ def split_tzname_delta(tzname):
     for sign in ["+", "-"]:
         if sign in tzname:
             name, offset = tzname.rsplit(sign, 1)
-            if offset and parse_time(offset):
+            # Cache parse_time for offset strings to avoid redundant regex parsing
+            if offset and _cached_parse_time(offset):
                 if ":" not in offset:
                     offset = f"{offset}:00"
                 return name, sign, offset
@@ -246,18 +248,20 @@ def typecast_timestamp(s):  # does NOT store time zone information
     dates = d.split("-")
     times = t.split(":")
     seconds = times[2]
-    if "." in seconds:  # check whether seconds have a fractional part
-        seconds, microseconds = seconds.split(".")
+    if "." in seconds:
+        seconds, microseconds = seconds.split(".", 1)
+        # pad to exactly 6 digits, truncate if longer
+        microseconds_int = int((microseconds + "000000")[:6])
     else:
-        microseconds = "0"
+        microseconds_int = 0
     return datetime.datetime(
         int(dates[0]),
         int(dates[1]),
         int(dates[2]),
         int(times[0]),
         int(times[1]),
-        int(seconds),
-        int((microseconds + "000000")[:6]),
+        int(seconds.split(".", 1)[0]),
+        microseconds_int,
     )
 
 
@@ -340,3 +344,9 @@ def strip_quotes(table_name):
     """
     has_quotes = table_name.startswith('"') and table_name.endswith('"')
     return table_name[1:-1] if has_quotes else table_name
+
+
+@lru_cache(maxsize=16)
+def _cached_parse_time(offset: str):
+    # LRU cache: offset values like "3:00", "00", "00:00"
+    return parse_time(offset)
