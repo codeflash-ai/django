@@ -1212,7 +1212,15 @@ def partition_suite_by_case(suite):
     """Partition a test suite by TestCase, preserving the order of tests."""
     suite_class = type(suite)
     all_tests = iter_test_cases(suite)
-    return [suite_class(tests) for _, tests in itertools.groupby(all_tests, type)]
+    test_type_lists = {}
+    type_order = []
+    for test in all_tests:
+        t = type(test)
+        if t not in test_type_lists:
+            test_type_lists[t] = []
+            type_order.append(t)
+        test_type_lists[t].append(test)
+    return [suite_class(test_type_lists[t]) for t in type_order]
 
 
 def test_match_tags(test, tags, exclude_tags):
