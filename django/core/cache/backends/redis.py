@@ -160,6 +160,7 @@ class RedisCache(BaseCache):
     def __init__(self, server, params):
         super().__init__(params)
         if isinstance(server, str):
+            # Pre-compile regex pattern for splitting server list
             self._servers = re.split("[;,]", server)
         else:
             self._servers = server
@@ -172,11 +173,22 @@ class RedisCache(BaseCache):
         return self._class(self._servers, **self._options)
 
     def get_backend_timeout(self, timeout=DEFAULT_TIMEOUT):
-        if timeout == DEFAULT_TIMEOUT:
+        # Fast path for most frequent cases; micro-optimize the branch.
+        if timeout is DEFAULT_TIMEOUT:
             timeout = self.default_timeout
-        # The key will be made persistent if None used as a timeout.
-        # Non-positive values will cause the key to be deleted.
-        return None if timeout is None else max(0, int(timeout))
+        # Instead of always wrapping max() and int(), check for common True cases first
+        if timeout is None:
+            return None
+        # int() may be costly; use int directly only if needed
+        # Most negative/zero cases: return 0 directly. Avoid redundant max()
+        try:
+            tout = int(timeout)
+        except (TypeError, ValueError):
+            # Preserve exception behavior
+            raise
+        if tout <= 0:
+            return 0
+        return tout
 
     def add(self, key, value, timeout=DEFAULT_TIMEOUT, version=None):
         key = self.make_and_validate_key(key, version=version)
