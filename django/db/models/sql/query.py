@@ -838,15 +838,18 @@ class Query(BaseExpression):
             select_mask = {}
         select_mask[opts.pk] = {}
         # Only include fields mentioned in the mask.
+        get_field = opts.get_field
+        related_objects = opts.related_objects
+        setdefault = select_mask.setdefault
         for field_name, field_mask in mask.items():
-            field = opts.get_field(field_name)
+            field = get_field(field_name)
             # Retrieve the actual field associated with reverse relationships
             # as that's what is expected in the select mask.
-            if field in opts.related_objects:
+            if field in related_objects:
                 field_key = field.field
             else:
                 field_key = field
-            field_select_mask = select_mask.setdefault(field_key, {})
+            field_select_mask = setdefault(field_key, {})
             if field_mask:
                 if not field.is_relation:
                     raise FieldError(next(iter(field_mask)))
