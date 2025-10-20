@@ -1,5 +1,4 @@
 from collections.abc import Iterable
-from itertools import chain
 
 from django.utils.inspect import func_accepts_kwargs
 
@@ -98,11 +97,12 @@ class CheckRegistry:
         return tag in self.tags_available(include_deployment_checks)
 
     def tags_available(self, deployment_checks=False):
-        return set(
-            chain.from_iterable(
-                check.tags for check in self.get_checks(deployment_checks)
-            )
+        checks = (
+            self.registered_checks | self.deployment_checks
+            if deployment_checks
+            else self.registered_checks
         )
+        return {tag for check in checks for tag in check.tags}
 
     def get_checks(self, include_deployment_checks=False):
         checks = list(self.registered_checks)
