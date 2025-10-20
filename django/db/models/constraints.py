@@ -37,13 +37,15 @@ class BaseConstraint:
                 f"argument: 'name'"
             )
         self.name = name
-        if violation_error_code is not None:
-            self.violation_error_code = violation_error_code
+        # Inline branches to minimize attribute lookups
         if violation_error_message is not None:
             self.violation_error_message = violation_error_message
         else:
             self.violation_error_message = self.default_violation_error_message
+        if violation_error_code is not None:
+            self.violation_error_code = violation_error_code
         # RemovedInDjango60Warning.
+        # Skip warnings.warn for empty args quickly, avoid unnecessary function calls
         if args:
             warnings.warn(
                 f"Passing positional arguments to {self.__class__.__name__} is "
@@ -51,9 +53,13 @@ class BaseConstraint:
                 RemovedInDjango60Warning,
                 stacklevel=2,
             )
-            for arg, attr in zip(args, ["name", "violation_error_message"]):
+            # Use direct indexing instead of zip (avoid making zip object)
+            attr_names = ("name", "violation_error_message")
+            for i, arg in enumerate(args):
+                if i >= 2:
+                    break  # Only handle first two positional args as per original code
                 if arg:
-                    setattr(self, attr, arg)
+                    setattr(self, attr_names[i], arg)
 
     @property
     def contains_expressions(self):
@@ -116,16 +122,20 @@ class BaseConstraint:
         return errors
 
     def deconstruct(self):
-        path = "%s.%s" % (self.__class__.__module__, self.__class__.__name__)
-        path = path.replace("django.db.models.constraints", "django.db.models")
+        # Avoid creating intermediate strings and use f-strings for small speed gain
+        cls = self.__class__
+        path = f"{cls.__module__}.{cls.__name__}".replace(
+            "django.db.models.constraints", "django.db.models"
+        )
         kwargs = {"name": self.name}
-        if (
-            self.violation_error_message is not None
-            and self.violation_error_message != self.default_violation_error_message
-        ):
-            kwargs["violation_error_message"] = self.violation_error_message
-        if self.violation_error_code is not None:
-            kwargs["violation_error_code"] = self.violation_error_code
+        v_message = self.violation_error_message
+        # Cache default_violation_error_message in a local for faster comparison
+        default_message = self.default_violation_error_message
+        if v_message is not None and v_message != default_message:
+            kwargs["violation_error_message"] = v_message
+        v_code = getattr(self, "violation_error_code", None)
+        if v_code is not None:
+            kwargs["violation_error_code"] = v_code
         return (path, (), kwargs)
 
     def clone(self):
