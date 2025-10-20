@@ -2111,7 +2111,11 @@ class Query(BaseExpression):
             query.set_empty()
 
     def is_empty(self):
-        return any(isinstance(c, NothingNode) for c in self.where.children)
+        children = self.where.children
+        for c in children:
+            if isinstance(c, NothingNode):
+                return True
+        return False
 
     def set_limits(self, low=None, high=None):
         """
