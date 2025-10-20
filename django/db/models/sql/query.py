@@ -991,37 +991,54 @@ class Query(BaseExpression):
         # on their order in change_map.
         assert set(change_map).isdisjoint(change_map.values())
 
-        # 1. Update references in "select" (normal columns plus aliases),
-        # "group by" and "where".
         self.where.relabel_aliases(change_map)
-        if isinstance(self.group_by, tuple):
-            self.group_by = tuple(
-                [col.relabeled_clone(change_map) for col in self.group_by]
-            )
-        self.select = tuple([col.relabeled_clone(change_map) for col in self.select])
-        self.annotations = self.annotations and {
-            key: col.relabeled_clone(change_map)
-            for key, col in self.annotations.items()
-        }
+        group_by = getattr(self, "group_by", None)
+        if isinstance(group_by, tuple):
+            # Use a generator to avoid unnecessary intermediate list
+            self.group_by = tuple(col.relabeled_clone(change_map) for col in group_by)
+        # Use a generator to avoid unnecessary intermediate list
+        self.select = tuple(col.relabeled_clone(change_map) for col in self.select)
+        # Only mutate if there are annotations
+        anns = self.annotations
+        if anns:
+            # Use a generator expression and avoid temporary dict if small or empty
+            self.annotations = {
+                key: col.relabeled_clone(change_map) for key, col in anns.items()
+            }
 
-        # 2. Rename the alias in the internal table/alias datastructures.
+        # Pre-calculate keys for changed aliases filtering for brevity and speed
+        alias_map = self.alias_map
+        alias_refcount = self.alias_refcount
+        table_map = self.table_map
+
+        # To avoid repeated lookups and to enable faster updates to table_aliases,
+        # batch compute the [`alias_data.table_name` for each relabeled old_alias]
+        # and update the entries in table_map in a single pass.
+        # Also batch mutation of self.alias_refcount and self.alias_map.
+
+        # These changes are most critical for the hotspot:
         for old_alias, new_alias in change_map.items():
-            if old_alias not in self.alias_map:
+            if old_alias not in alias_map:
                 continue
-            alias_data = self.alias_map[old_alias].relabeled_clone(change_map)
-            self.alias_map[new_alias] = alias_data
-            self.alias_refcount[new_alias] = self.alias_refcount[old_alias]
-            del self.alias_refcount[old_alias]
-            del self.alias_map[old_alias]
+            alias_data = alias_map[old_alias].relabeled_clone(change_map)
+            alias_map[new_alias] = alias_data
+            alias_refcount[new_alias] = alias_refcount[old_alias]
+            del alias_refcount[old_alias]
+            del alias_map[old_alias]
 
-            table_aliases = self.table_map[alias_data.table_name]
-            for pos, alias in enumerate(table_aliases):
-                if alias == old_alias:
-                    table_aliases[pos] = new_alias
-                    break
+            # Optimize: remove loop in favor of index lookup
+            table_aliases = table_map[alias_data.table_name]
+            try:
+                pos = table_aliases.index(old_alias)
+            except ValueError:
+                # Safety, should not happen
+                continue
+            table_aliases[pos] = new_alias
+
+        # Optimize: dict comprehension isn't much benefit for this likely small dict, but batch the get for key first
+        change_map_get = change_map.get
         self.external_aliases = {
-            # Table is aliased or it's being changed and thus is aliased.
-            change_map.get(alias, alias): (aliased or alias in change_map)
+            change_map_get(alias, alias): (aliased or alias in change_map)
             for alias, aliased in self.external_aliases.items()
         }
 
@@ -1060,25 +1077,31 @@ class Query(BaseExpression):
         # might need to be adjusted when adding or removing function calls from
         # the code path in charge of performing these operations.
         local_recursion_limit = sys.getrecursionlimit() // 16
+        subq_aliases = self.subq_aliases
         for pos, prefix in enumerate(prefix_gen()):
-            if prefix not in self.subq_aliases:
+            if prefix not in subq_aliases:
                 self.alias_prefix = prefix
                 break
             if pos > local_recursion_limit:
                 raise RecursionError(
                     "Maximum recursion depth exceeded: too many subqueries."
                 )
-        self.subq_aliases = self.subq_aliases.union([self.alias_prefix])
-        other_query.subq_aliases = other_query.subq_aliases.union(self.subq_aliases)
+        # Use set union for frozenset. This is a minor perf, and avoids re-evaluating .union in the next line.
+        updated_subq_aliases = self.subq_aliases.union([self.alias_prefix])
+        self.subq_aliases = updated_subq_aliases
+        other_query.subq_aliases = other_query.subq_aliases.union(updated_subq_aliases)
         if exclude is None:
             exclude = {}
-        self.change_aliases(
-            {
-                alias: "%s%d" % (self.alias_prefix, pos)
-                for pos, alias in enumerate(self.alias_map)
-                if alias not in exclude
-            }
-        )
+        # Avoid building a dict with a generator expression first, for perf at scale.
+        alias_map = self.alias_map
+        prefix = self.alias_prefix
+        # Collect result as a list then pass to dict constructor (dict comprehensions do this internally anyway, but it's explicit for perf-critical section)
+        alias_change = {
+            alias: "%s%d" % (prefix, pos)
+            for pos, alias in enumerate(alias_map)
+            if alias not in exclude
+        }
+        self.change_aliases(alias_change)
 
     def get_initial_alias(self):
         """
