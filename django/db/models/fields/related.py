@@ -543,17 +543,18 @@ class ForeignObject(RelatedField):
         swappable=True,
         **kwargs,
     ):
-        if rel is None:
-            rel = self.rel_class(
-                self,
-                to,
-                related_name=related_name,
-                related_query_name=related_query_name,
-                limit_choices_to=limit_choices_to,
-                parent_link=parent_link,
-                on_delete=on_delete,
-            )
+        # Only initialize rel if not supplied, avoiding unnecessary attribute lookups
+        rel = rel or self.rel_class(
+            self,
+            to,
+            related_name=related_name,
+            related_query_name=related_query_name,
+            limit_choices_to=limit_choices_to,
+            parent_link=parent_link,
+            on_delete=on_delete,
+        )
 
+        # Directly pass relevant arguments to superclass constructor
         super().__init__(
             rel=rel,
             related_name=related_name,
@@ -562,6 +563,7 @@ class ForeignObject(RelatedField):
             **kwargs,
         )
 
+        # Assign values directly, no changes to original behavior
         self.from_fields = from_fields
         self.to_fields = to_fields
         self.swappable = swappable
@@ -751,22 +753,30 @@ class ForeignObject(RelatedField):
 
     @staticmethod
     def get_instance_value_for_fields(instance, fields):
+        # PRE-OPT: move opts outside loop (done), pre-bind methods/attributes where hot (done)
         ret = []
         opts = instance._meta
+        instance_pk = instance.pk  # only one attribute fetch if possible
+        getattr_ = getattr  # localize function for performance
+        append_ret = ret.append  # localize for performance
+        get_ancestor_link = opts.get_ancestor_link  # localize for performance
+
         for field in fields:
             # Gotcha: in some cases (like fixture loading) a model can have
             # different values in parent_ptr_id and parent's id. So, use
             # instance.pk (that is, parent_ptr_id) when asked for instance.id.
             if field.primary_key:
-                possible_parent_link = opts.get_ancestor_link(field.model)
-                if (
-                    not possible_parent_link
-                    or possible_parent_link.primary_key
-                    or possible_parent_link.model._meta.abstract
-                ):
-                    ret.append(instance.pk)
+                possible_parent_link = get_ancestor_link(field.model)
+                # Group all or-clauses to reduce op count and short-circuit as soon as possible
+                if not possible_parent_link:
+                    append_ret(instance_pk)
                     continue
-            ret.append(getattr(instance, field.attname))
+                possible_parent_link_pk = possible_parent_link.primary_key
+                possible_parent_link_model_meta = possible_parent_link.model._meta
+                if possible_parent_link_pk or possible_parent_link_model_meta.abstract:
+                    append_ret(instance_pk)
+                    continue
+            append_ret(getattr_(instance, field.attname))
         return tuple(ret)
 
     def get_attname_column(self):
