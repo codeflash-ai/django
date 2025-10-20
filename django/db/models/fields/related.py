@@ -208,17 +208,25 @@ class RelatedField(FieldCacheMixin, Field):
         return []
 
     def _check_referencing_to_swapped_model(self):
+        remote_field = self.remote_field
+        remote_model = remote_field.model
+        # Optimize apps.get_models lookup: run only once if possible.
+        # Assign opts once for slightly quicker attribute access
+        opts = self.opts
+
+        # Fast str checks first, short-circuit to avoid more work
         if (
-            self.remote_field.model not in self.opts.apps.get_models()
-            and not isinstance(self.remote_field.model, str)
-            and self.remote_field.model._meta.swapped
+            not isinstance(remote_model, str)
+            and remote_model not in opts.apps.get_models()
+            and remote_model._meta.swapped
         ):
+            remote_model_meta = remote_model._meta  # Cache for attribute reuse
             return [
                 checks.Error(
                     "Field defines a relation with the model '%s', which has "
-                    "been swapped out." % self.remote_field.model._meta.label,
+                    "been swapped out." % remote_model_meta.label,
                     hint="Update the relation to point at 'settings.%s'."
-                    % self.remote_field.model._meta.swappable,
+                    % remote_model_meta.swappable,
                     obj=self,
                     id="fields.E301",
                 )
@@ -543,17 +551,18 @@ class ForeignObject(RelatedField):
         swappable=True,
         **kwargs,
     ):
-        if rel is None:
-            rel = self.rel_class(
-                self,
-                to,
-                related_name=related_name,
-                related_query_name=related_query_name,
-                limit_choices_to=limit_choices_to,
-                parent_link=parent_link,
-                on_delete=on_delete,
-            )
+        # Only initialize rel if not supplied, avoiding unnecessary attribute lookups
+        rel = rel or self.rel_class(
+            self,
+            to,
+            related_name=related_name,
+            related_query_name=related_query_name,
+            limit_choices_to=limit_choices_to,
+            parent_link=parent_link,
+            on_delete=on_delete,
+        )
 
+        # Directly pass relevant arguments to superclass constructor
         super().__init__(
             rel=rel,
             related_name=related_name,
@@ -562,6 +571,7 @@ class ForeignObject(RelatedField):
             **kwargs,
         )
 
+        # Assign values directly, no changes to original behavior
         self.from_fields = from_fields
         self.to_fields = to_fields
         self.swappable = swappable
