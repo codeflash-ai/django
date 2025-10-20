@@ -7,6 +7,7 @@ _builtin_context_processors = ("django.template.context_processors.csrf",)
 
 class ContextPopException(Exception):
     "pop() has been called more times than push()"
+
     pass
 
 
@@ -107,9 +108,7 @@ class BaseContext:
         Return a new context with the same properties, but with only the
         values given in 'values' stored.
         """
-        new_context = copy(self)
-        new_context._reset_dicts(values)
-        return new_context
+        return type(self)(values)
 
     def flatten(self):
         """
