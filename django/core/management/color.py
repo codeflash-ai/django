@@ -79,22 +79,28 @@ def make_style(config_string=""):
     """
 
     style = Style()
-
     color_settings = termcolors.parse_color_setting(config_string)
 
-    # The nocolor palette has all available roles.
-    # Use that palette as the basis for populating
-    # the palette as defined in the environment.
-    for role in termcolors.PALETTES[termcolors.NOCOLOR_PALETTE]:
-        if color_settings:
-            format = color_settings.get(role, {})
-            style_func = termcolors.make_style(**format)
-        else:
+    # Avoid repeated attribute lookup and function creation in loop
+    nocolor_roles = termcolors.PALETTES[termcolors.NOCOLOR_PALETTE].keys()
+    nocolor = color_settings is None
 
-            def style_func(x):
-                return x
+    if not nocolor:
+        # Pre-create style functions per unique format to minimize calls to make_style
+        format_to_func = {}
+        for role in nocolor_roles:
+            fmt = color_settings.get(role, {})
+            fmt_key = id(fmt)
+            if fmt_key not in format_to_func:
+                format_to_func[fmt_key] = termcolors.make_style(**fmt)
+            setattr(style, role, format_to_func[fmt_key])
+    else:
+        # Use a shared identity function for all roles
+        def identity(x):
+            return x
 
-        setattr(style, role, style_func)
+        for role in nocolor_roles:
+            setattr(style, role, identity)
 
     # For backwards compatibility,
     # set style for ERROR_OUTPUT == ERROR
