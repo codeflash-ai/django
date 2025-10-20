@@ -21,6 +21,10 @@ class RedisSerializer:
         return pickle.dumps(obj, self.protocol)
 
     def loads(self, data):
+        if isinstance(data, int):
+            return data
+        if isinstance(data, (bytes, bytearray)) and data and data[0] == 0x80:
+            return pickle.loads(data)
         try:
             return int(data)
         except ValueError:
