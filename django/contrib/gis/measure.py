@@ -204,24 +204,32 @@ class MeasureBase:
         """
         val = 0.0
         default_unit = self.STANDARD_UNIT
+        # Avoid repeated dict and method lookups inside the loop.
+        UNITS = self.UNITS
+        ALIAS = self.ALIAS
+        LALIAS = self.LALIAS
+
+        # For speed: use local var for float conversion
+        float_ = float
+
         for unit, value in kwargs.items():
             if not isinstance(value, float):
-                value = float(value)
-            if unit in self.UNITS:
-                val += self.UNITS[unit] * value
+                value = float_(value)
+            if unit in UNITS:
+                val += UNITS[unit] * value
                 default_unit = unit
-            elif unit in self.ALIAS:
-                u = self.ALIAS[unit]
-                val += self.UNITS[u] * value
+            elif unit in ALIAS:
+                u = ALIAS[unit]
+                val += UNITS[u] * value
                 default_unit = u
             else:
                 lower = unit.lower()
-                if lower in self.UNITS:
-                    val += self.UNITS[lower] * value
+                if lower in UNITS:
+                    val += UNITS[lower] * value
                     default_unit = lower
-                elif lower in self.LALIAS:
-                    u = self.LALIAS[lower]
-                    val += self.UNITS[u] * value
+                elif lower in LALIAS:
+                    u = LALIAS[lower]
+                    val += UNITS[u] * value
                     default_unit = u
                 else:
                     raise AttributeError("Unknown unit type: %s" % unit)
