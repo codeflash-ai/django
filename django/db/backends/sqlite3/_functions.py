@@ -344,9 +344,7 @@ def _sqlite_ceiling(x):
 
 
 def _sqlite_cos(x):
-    if x is None:
-        return None
-    return cos(x)
+    return cos(x) if x is not None else None
 
 
 def _sqlite_cot(x):
