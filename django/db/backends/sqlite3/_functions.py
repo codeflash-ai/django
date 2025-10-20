@@ -26,7 +26,7 @@ from math import (
     sqrt,
     tan,
 )
-from re import search as re_search
+from re import compile as re_compile
 
 from django.db.backends.utils import (
     split_tzname_delta,
@@ -35,6 +35,8 @@ from django.db.backends.utils import (
 )
 from django.utils import timezone
 from django.utils.duration import duration_microseconds
+
+_regex_cache = {}
 
 
 def register(connection):
@@ -304,7 +306,11 @@ def _sqlite_regexp(pattern, string):
         return None
     if not isinstance(string, str):
         string = str(string)
-    return bool(re_search(pattern, string))
+    regex = _regex_cache.get(pattern)
+    if regex is None:
+        regex = re_compile(pattern)
+        _regex_cache[pattern] = regex
+    return bool(regex.search(string))
 
 
 def _sqlite_acos(x):
