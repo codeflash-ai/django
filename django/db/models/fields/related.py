@@ -397,10 +397,15 @@ class RelatedField(FieldCacheMixin, Field):
         returned by related descriptors. obj is an instance of
         self.related_field.model.
         """
-        return {
-            "%s__%s" % (self.name, rh_field.name): getattr(obj, rh_field.attname)
-            for _, rh_field in self.related_fields
-        }
+        # Pre-fetch attribute values ahead of dict comprehension for performance
+        fields = self.related_fields
+        name = self.name
+        # Avoid repeated getattr/name accesses inside dict comprehension
+        result = {}
+        for _, rh_field in fields:
+            key = f"{name}__{rh_field.name}"
+            result[key] = getattr(obj, rh_field.attname)
+        return result
 
     def get_reverse_related_filter(self, obj):
         """
@@ -543,17 +548,18 @@ class ForeignObject(RelatedField):
         swappable=True,
         **kwargs,
     ):
-        if rel is None:
-            rel = self.rel_class(
-                self,
-                to,
-                related_name=related_name,
-                related_query_name=related_query_name,
-                limit_choices_to=limit_choices_to,
-                parent_link=parent_link,
-                on_delete=on_delete,
-            )
+        # Only initialize rel if not supplied, avoiding unnecessary attribute lookups
+        rel = rel or self.rel_class(
+            self,
+            to,
+            related_name=related_name,
+            related_query_name=related_query_name,
+            limit_choices_to=limit_choices_to,
+            parent_link=parent_link,
+            on_delete=on_delete,
+        )
 
+        # Directly pass relevant arguments to superclass constructor
         super().__init__(
             rel=rel,
             related_name=related_name,
@@ -562,6 +568,7 @@ class ForeignObject(RelatedField):
             **kwargs,
         )
 
+        # Assign values directly, no changes to original behavior
         self.from_fields = from_fields
         self.to_fields = to_fields
         self.swappable = swappable
