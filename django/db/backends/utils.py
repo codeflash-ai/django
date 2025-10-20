@@ -319,16 +319,32 @@ def format_number(value, max_digits, decimal_places):
     """
     if value is None:
         return None
-    context = decimal.getcontext().copy()
-    if max_digits is not None:
-        context.prec = max_digits
+
+    # Precompute Decimal and context only if needed for performance
     if decimal_places is not None:
-        value = value.quantize(
-            decimal.Decimal(1).scaleb(-decimal_places), context=context
-        )
+        # Avoid context.copy() for quantize by setting prec globally only if max_digits is not None
+        if max_digits is not None:
+            orig_prec = decimal.getcontext().prec
+            decimal.getcontext().prec = max_digits
+            try:
+                quant = decimal.Decimal(1).scaleb(-decimal_places)
+                value = value.quantize(quant)
+            finally:
+                decimal.getcontext().prec = orig_prec
+        else:
+            quant = decimal.Decimal(1).scaleb(-decimal_places)
+            value = value.quantize(quant)
     else:
+        # Only need context.copy() if traps manipulation or max_digits is set
+        context = None
+        if max_digits is not None:
+            context = decimal.getcontext().copy()
+            context.prec = max_digits
+        else:
+            context = decimal.getcontext().copy()
         context.traps[decimal.Rounded] = 1
         value = context.create_decimal(value)
+
     return "{:f}".format(value)
 
 
