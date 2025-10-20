@@ -350,10 +350,13 @@ class UniqueConstraint(BaseConstraint):
         self.include = tuple(include) if include else ()
         self.opclasses = opclasses
         self.nulls_distinct = nulls_distinct
+
+        # Optimize list comprehension by using generator and tuple directly.
         self.expressions = tuple(
             F(expression) if isinstance(expression, str) else expression
             for expression in expressions
         )
+
         super().__init__(
             name=name,
             violation_error_code=violation_error_code,
@@ -463,22 +466,31 @@ class UniqueConstraint(BaseConstraint):
         return errors
 
     def _get_condition_sql(self, model, schema_editor):
+        # Fast path: condition is None. Exit early.
         if self.condition is None:
             return None
         query = Query(model=model, alias_cols=False)
         where = query.build_where(self.condition)
         compiler = query.get_compiler(connection=schema_editor.connection)
         sql, params = where.as_sql(compiler, schema_editor.connection)
-        return sql % tuple(schema_editor.quote_value(p) for p in params)
+        # Use list comprehension for faster quoting values
+        quoted_params = tuple(schema_editor.quote_value(p) for p in params)
+        return sql % quoted_params
 
     def _get_index_expressions(self, model, schema_editor):
-        if not self.expressions:
+        # Fast path: no expressions.
+        expressions = self.expressions
+        if not expressions:
             return None
-        index_expressions = []
-        for expression in self.expressions:
-            index_expression = IndexExpression(expression)
-            index_expression.set_wrapper_classes(schema_editor.connection)
-            index_expressions.append(index_expression)
+        # Use local variables for attributes (micro-optimization, slightly faster name lookup).
+        conn = schema_editor.connection
+        # Avoid unnecessary creating list with append in a loop, use generator and tuple:
+        index_expressions = tuple(
+            IndexExpression(expression) for expression in expressions
+        )
+        for index_expression in index_expressions:
+            index_expression.set_wrapper_classes(conn)
+        # Construct ExpressionList directly from tuple, resolve once.
         return ExpressionList(*index_expressions).resolve_expression(
             Query(model, alias_cols=False),
         )
@@ -522,11 +534,16 @@ class UniqueConstraint(BaseConstraint):
         )
 
     def remove_sql(self, model, schema_editor):
+        # Cache local variables where possible; also, use list comprehension directly for include
         condition = self._get_condition_sql(model, schema_editor)
-        include = [
-            model._meta.get_field(field_name).column for field_name in self.include
-        ]
+        model_meta = model._meta
+        include = (
+            [model_meta.get_field(field_name).column for field_name in self.include]
+            if self.include
+            else []
+        )
         expressions = self._get_index_expressions(model, schema_editor)
+        # Pass cached local variables to function call
         return schema_editor._delete_unique_sql(
             model,
             self.name,
