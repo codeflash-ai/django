@@ -70,10 +70,13 @@ class MeasureBase:
     standard = property(_get_standard, _set_standard)
 
     def __getattr__(self, name):
-        if name in self.UNITS:
-            return self.standard / self.UNITS[name]
-        else:
-            raise AttributeError("Unknown unit type: %s" % name)
+        # Use local vars for hot-path to reduce attribute lookup time
+        units = self.UNITS
+        if name in units:
+            # Avoid repeated self.UNITS lookups and remove else branch for slightly quicker path
+            return self.standard / units[name]
+        # Move out message formatting unless needed
+        raise AttributeError(f"Unknown unit type: {name}")
 
     def __repr__(self):
         return "%s(%s=%s)" % (
