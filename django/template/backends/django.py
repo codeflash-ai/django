@@ -116,7 +116,11 @@ def copy_exception(exc, backend=None):
     to make this object suitable for keeping around (in a cache, for example).
     """
     backend = backend or exc.backend
-    new = exc.__class__(*exc.args, tried=exc.tried, backend=backend, chain=exc.chain)
+    new = exc.__class__.__new__(exc.__class__)
+    new.args = exc.args
+    new.tried = exc.tried
+    new.backend = backend
+    new.chain = exc.chain
     if hasattr(exc, "template_debug"):
         new.template_debug = exc.template_debug
     return new
