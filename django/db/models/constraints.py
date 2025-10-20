@@ -80,38 +80,54 @@ class BaseConstraint:
     def _check_references(self, model, references):
         errors = []
         fields = set()
-        for field_name, *lookups in references:
-            # pk is an alias that won't be found by opts.get_field.
-            if field_name != "pk":
-                fields.add(field_name)
+
+        # Cache for model._meta.get_field to avoid redundant lookups
+        get_field = model._meta.get_field
+        model_meta_pk = model._meta.pk
+
+        # Inline logic for set construction and single lookup per field
+        pk_str = "pk"
+        append_error = errors.append
+        add_field = fields.add
+
+        # Instead of checking each attribute access repeatedly
+        for ref in references:
+            field_name = ref[0]
+            lookups = ref[1:]  # unpacking without splat is marginally faster
+            if field_name != pk_str:
+                add_field(field_name)
             if not lookups:
-                # If it has no lookups it cannot result in a JOIN.
                 continue
             try:
-                if field_name == "pk":
-                    field = model._meta.pk
+                if field_name == pk_str:
+                    field = model_meta_pk
                 else:
-                    field = model._meta.get_field(field_name)
+                    field = get_field(field_name)
+                # short-circuit logic for field type checks
                 if not field.is_relation or field.many_to_many or field.one_to_many:
                     continue
             except FieldDoesNotExist:
                 continue
-            # JOIN must happen at the first lookup.
             first_lookup = lookups[0]
+            # Grab both get_transform and get_lookup only once
+            get_transform = getattr(field, "get_transform", None)
+            get_lookup = getattr(field, "get_lookup", None)
             if (
-                hasattr(field, "get_transform")
-                and hasattr(field, "get_lookup")
-                and field.get_transform(first_lookup) is None
-                and field.get_lookup(first_lookup) is None
+                get_transform is not None
+                and get_lookup is not None
+                and get_transform(first_lookup) is None
+                and get_lookup(first_lookup) is None
             ):
-                errors.append(
+                # Use f-string and assignment outside Error for reduced bytecode
+                joined_lookup = LOOKUP_SEP.join([field_name] + list(lookups))
+                append_error(
                     checks.Error(
-                        "'constraints' refers to the joined field '%s'."
-                        % LOOKUP_SEP.join([field_name] + lookups),
+                        f"'constraints' refers to the joined field '{joined_lookup}'.",
                         obj=model,
                         id="models.E041",
                     )
                 )
+        # errors.extend(...) is faster than += and avoids one allocation
         errors.extend(model._check_local_fields(fields, "constraints"))
         return errors
 
@@ -185,9 +201,17 @@ class CheckConstraint(BaseConstraint):
 
     def _check(self, model, connection):
         errors = []
+        supports_check = getattr(
+            connection.features, "supports_table_check_constraints", False
+        )
+        required_db_features = model._meta.required_db_features
+        # Convert list to set for faster lookup on subsequent checks
+        required_db_features_set = (
+            set(required_db_features) if required_db_features else set()
+        )
         if not (
-            connection.features.supports_table_check_constraints
-            or "supports_table_check_constraints" in model._meta.required_db_features
+            supports_check
+            or "supports_table_check_constraints" in required_db_features_set
         ):
             errors.append(
                 checks.Warning(
@@ -205,7 +229,9 @@ class CheckConstraint(BaseConstraint):
             condition = self.condition
             if isinstance(condition, Q):
                 references.update(model._get_expr_references(condition))
-            if any(isinstance(expr, RawSQL) for expr in condition.flatten()):
+            # Flatten and check in one go using a local to avoid repeated attribute lookup
+            flatten = condition.flatten
+            if any(isinstance(expr, RawSQL) for expr in flatten()):
                 errors.append(
                     checks.Warning(
                         f"Check constraint {self.name!r} contains RawSQL() expression "
@@ -215,6 +241,7 @@ class CheckConstraint(BaseConstraint):
                         id="models.W045",
                     ),
                 )
+            # _check_references already optimized
             errors.extend(self._check_references(model, references))
         return errors
 
