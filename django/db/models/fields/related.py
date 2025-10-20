@@ -543,17 +543,18 @@ class ForeignObject(RelatedField):
         swappable=True,
         **kwargs,
     ):
-        if rel is None:
-            rel = self.rel_class(
-                self,
-                to,
-                related_name=related_name,
-                related_query_name=related_query_name,
-                limit_choices_to=limit_choices_to,
-                parent_link=parent_link,
-                on_delete=on_delete,
-            )
+        # Only initialize rel if not supplied, avoiding unnecessary attribute lookups
+        rel = rel or self.rel_class(
+            self,
+            to,
+            related_name=related_name,
+            related_query_name=related_query_name,
+            limit_choices_to=limit_choices_to,
+            parent_link=parent_link,
+            on_delete=on_delete,
+        )
 
+        # Directly pass relevant arguments to superclass constructor
         super().__init__(
             rel=rel,
             related_name=related_name,
@@ -562,6 +563,7 @@ class ForeignObject(RelatedField):
             **kwargs,
         )
 
+        # Assign values directly, no changes to original behavior
         self.from_fields = from_fields
         self.to_fields = to_fields
         self.swappable = swappable
@@ -1114,7 +1116,7 @@ class ForeignKey(ForeignObject):
         return related_fields
 
     def get_attname(self):
-        return "%s_id" % self.name
+        return f"{self.name}_id"
 
     def get_attname_column(self):
         attname = self.get_attname()
