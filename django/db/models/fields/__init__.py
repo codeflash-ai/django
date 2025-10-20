@@ -629,32 +629,37 @@ class Field(RegisterLookupMixin):
             "verbose_name": "_verbose_name",
             "db_tablespace": "_db_tablespace",
         }
-        equals_comparison = {"choices", "validators"}
+        equals_comparison = ("choices", "validators")
+
+        # Fast path: avoid repeated attr lookups and type checks
         for name, default in possibles.items():
-            value = getattr(self, attr_overrides.get(name, name))
-            if isinstance(value, CallableChoiceIterator):
+            attr_name = attr_overrides.get(name, name)
+            value = getattr(self, attr_name)
+            if name == "choices" and isinstance(value, CallableChoiceIterator):
                 value = value.func
-            # Do correct kind of comparison
+            # Direct comparison for 'choices' and 'validators'
             if name in equals_comparison:
                 if value != default:
                     keywords[name] = value
             else:
                 if value is not default:
                     keywords[name] = value
-        # Work out path - we shorten it for known Django core fields
+
+        # Map for efficient path shortening
+        shorten_map = (
+            ("django.db.models.fields.related", "django.db.models"),
+            ("django.db.models.fields.files", "django.db.models"),
+            ("django.db.models.fields.generated", "django.db.models"),
+            ("django.db.models.fields.json", "django.db.models"),
+            ("django.db.models.fields.proxy", "django.db.models"),
+            ("django.db.models.fields", "django.db.models"),
+        )
         path = "%s.%s" % (self.__class__.__module__, self.__class__.__qualname__)
-        if path.startswith("django.db.models.fields.related"):
-            path = path.replace("django.db.models.fields.related", "django.db.models")
-        elif path.startswith("django.db.models.fields.files"):
-            path = path.replace("django.db.models.fields.files", "django.db.models")
-        elif path.startswith("django.db.models.fields.generated"):
-            path = path.replace("django.db.models.fields.generated", "django.db.models")
-        elif path.startswith("django.db.models.fields.json"):
-            path = path.replace("django.db.models.fields.json", "django.db.models")
-        elif path.startswith("django.db.models.fields.proxy"):
-            path = path.replace("django.db.models.fields.proxy", "django.db.models")
-        elif path.startswith("django.db.models.fields"):
-            path = path.replace("django.db.models.fields", "django.db.models")
+        for prefix, replacement in shorten_map:
+            if path.startswith(prefix):
+                path = path.replace(prefix, replacement, 1)
+                break
+
         # Return basic info - other fields should override this.
         return (self.name, path, [], keywords)
 
