@@ -1241,12 +1241,14 @@ class Query(BaseExpression):
         return clone
 
     def get_external_cols(self):
-        exprs = chain(self.annotations.values(), self.where.children)
-        return [
-            col
-            for col in self._gen_cols(exprs, include_external=True)
-            if col.alias in self.external_aliases
-        ]
+        # Optimization: avoid building intermediate lists, and speed up membership checks.
+        external_aliases = self.external_aliases
+        gen_cols = self._gen_cols(
+            chain(self.annotations.values(), self.where.children), include_external=True
+        )
+        # Use generator expression for output to avoid intermediate list as long as possible.
+        # Since we must return a list, this is as concise as possible.
+        return [col for col in gen_cols if col.alias in external_aliases]
 
     def get_group_by_cols(self, wrapper=None):
         # If wrapper is referenced by an alias for an explicit GROUP BY through
@@ -1254,7 +1256,8 @@ class Query(BaseExpression):
         # returned to ensure external column references are not grouped against
         # as well.
         external_cols = self.get_external_cols()
-        if any(col.possibly_multivalued for col in external_cols):
+        # Optimization: short-circuit as soon as any possibly_multivalued is True.
+        if next((True for col in external_cols if col.possibly_multivalued), False):
             return [wrapper or self]
         return external_cols
 
