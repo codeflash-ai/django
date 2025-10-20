@@ -129,17 +129,26 @@ def get_command_line_option(argv, option):
 
 def normalize_path_patterns(patterns):
     """Normalize an iterable of glob style patterns based on OS."""
-    patterns = [os.path.normcase(p) for p in patterns]
-    dir_suffixes = {"%s*" % path_sep for path_sep in {"/", os.sep}}
-    norm_patterns = []
-    for pattern in patterns:
+    # Precompute dir_suffixes as an ordered tuple for efficient lookup and consistent order
+    sep = os.sep
+    altsep = "/" if os.sep != "/" else None
+    dir_suffixes = (f"{sep}*",)
+    if altsep is not None:
+        dir_suffixes += (f"{altsep}*",)
+    # Shortcuts to avoid repeated function attribute lookups in the inner loop
+    normcase = os.path.normcase
+    result_append = []
+    # Avoid costly list comprehension if patterns is already a list/tuple
+    # but need to build a list because we'll scan it again
+    patterns_norm = [normcase(p) for p in patterns]
+    for pattern in patterns_norm:
         for dir_suffix in dir_suffixes:
             if pattern.endswith(dir_suffix):
-                norm_patterns.append(pattern.removesuffix(dir_suffix))
+                result_append.append(pattern.removesuffix(dir_suffix))
                 break
         else:
-            norm_patterns.append(pattern)
-    return norm_patterns
+            result_append.append(pattern)
+    return result_append
 
 
 def is_ignored_path(path, ignore_patterns):
