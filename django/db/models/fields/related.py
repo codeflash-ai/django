@@ -543,17 +543,18 @@ class ForeignObject(RelatedField):
         swappable=True,
         **kwargs,
     ):
-        if rel is None:
-            rel = self.rel_class(
-                self,
-                to,
-                related_name=related_name,
-                related_query_name=related_query_name,
-                limit_choices_to=limit_choices_to,
-                parent_link=parent_link,
-                on_delete=on_delete,
-            )
+        # Only initialize rel if not supplied, avoiding unnecessary attribute lookups
+        rel = rel or self.rel_class(
+            self,
+            to,
+            related_name=related_name,
+            related_query_name=related_query_name,
+            limit_choices_to=limit_choices_to,
+            parent_link=parent_link,
+            on_delete=on_delete,
+        )
 
+        # Directly pass relevant arguments to superclass constructor
         super().__init__(
             rel=rel,
             related_name=related_name,
@@ -562,6 +563,7 @@ class ForeignObject(RelatedField):
             **kwargs,
         )
 
+        # Assign values directly, no changes to original behavior
         self.from_fields = from_fields
         self.to_fields = to_fields
         self.swappable = swappable
@@ -1859,28 +1861,43 @@ class ManyToManyField(RelatedField):
         column name for the m2m table.
         """
         cache_attr = "_m2m_reverse_%s_cache" % attr
-        if hasattr(self, cache_attr):
-            return getattr(self, cache_attr)
+        # Fast path: check cache up front
+        val = getattr(self, cache_attr, None)
+        if val is not None:
+            return val
+
+        remote_field = self.remote_field
+        through = remote_field.through
+        through_meta_fields = through._meta.fields
+        through_fields = remote_field.through_fields
+
+        link_field_name = through_fields[1] if through_fields is not None else None
+
         found = False
-        if self.remote_field.through_fields is not None:
-            link_field_name = self.remote_field.through_fields[1]
-        else:
-            link_field_name = None
-        for f in self.remote_field.through._meta.fields:
-            if f.is_relation and f.remote_field.model == related.model:
-                if link_field_name is None and related.related_model == related.model:
+
+        # Use local variable lookups, avoid repeated attribute fetches
+        related_model = related.model
+        related_related_model = related.related_model
+
+        # Avoid repeated getattr/fetch for performance
+        for f in through_meta_fields:
+            if f.is_relation and f.remote_field.model is related_model:
+                if link_field_name is None and related_related_model is related_model:
                     # If this is an m2m-intermediate to self,
                     # the first foreign key you find will be
                     # the source column. Keep searching for
                     # the second foreign key.
                     if found:
-                        setattr(self, cache_attr, getattr(f, attr))
+                        val = getattr(f, attr)
+                        setattr(self, cache_attr, val)
                         break
                     else:
                         found = True
                 elif link_field_name is None or link_field_name == f.name:
-                    setattr(self, cache_attr, getattr(f, attr))
+                    val = getattr(f, attr)
+                    setattr(self, cache_attr, val)
                     break
+        # Return the cached value, now definitely set
         return getattr(self, cache_attr)
 
     def contribute_to_class(self, cls, name, **kwargs):
