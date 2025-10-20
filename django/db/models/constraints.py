@@ -166,11 +166,14 @@ class CheckConstraint(BaseConstraint):
         )
 
     def _get_check(self):
-        warnings.warn(
-            "CheckConstraint.check is deprecated in favor of `.condition`.",
-            RemovedInDjango60Warning,
-            stacklevel=2,
-        )
+        cls = type(self)
+        if not hasattr(cls, "_check_warned"):
+            warnings.warn(
+                "CheckConstraint.check is deprecated in favor of `.condition`.",
+                RemovedInDjango60Warning,
+                stacklevel=2,
+            )
+            cls._check_warned = True
         return self.condition
 
     def _set_check(self, value):
