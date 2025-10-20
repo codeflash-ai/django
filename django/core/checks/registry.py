@@ -95,9 +95,18 @@ class CheckRegistry:
         return errors
 
     def tag_exists(self, tag, include_deployment_checks=False):
-        return tag in self.tags_available(include_deployment_checks)
+        # Fast path: avoid building a full set; check tag membership directly
+        if include_deployment_checks:
+            checks = self.registered_checks | self.deployment_checks
+        else:
+            checks = self.registered_checks
+        for check in checks:
+            if tag in check.tags:
+                return True
+        return False
 
     def tags_available(self, deployment_checks=False):
+        # No change here; can't optimize further without changing behavior.
         return set(
             chain.from_iterable(
                 check.tags for check in self.get_checks(deployment_checks)
