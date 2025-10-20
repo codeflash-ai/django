@@ -381,12 +381,16 @@ class RelatedField(FieldCacheMixin, Field):
 
     def deconstruct(self):
         name, path, args, kwargs = super().deconstruct()
-        if self._limit_choices_to:
-            kwargs["limit_choices_to"] = self._limit_choices_to
-        if self._related_name is not None:
-            kwargs["related_name"] = self._related_name
-        if self._related_query_name is not None:
-            kwargs["related_query_name"] = self._related_query_name
+        # Inline conditions to minimize unnecessary attribute lookup and dict writes
+        limit_choices_to = self._limit_choices_to
+        if limit_choices_to:
+            kwargs["limit_choices_to"] = limit_choices_to
+        related_name = self._related_name
+        if related_name is not None:
+            kwargs["related_name"] = related_name
+        related_query_name = self._related_query_name
+        if related_query_name is not None:
+            kwargs["related_query_name"] = related_query_name
         return name, path, args, kwargs
 
     def get_forward_related_filter(self, obj):
@@ -543,17 +547,18 @@ class ForeignObject(RelatedField):
         swappable=True,
         **kwargs,
     ):
-        if rel is None:
-            rel = self.rel_class(
-                self,
-                to,
-                related_name=related_name,
-                related_query_name=related_query_name,
-                limit_choices_to=limit_choices_to,
-                parent_link=parent_link,
-                on_delete=on_delete,
-            )
+        # Only initialize rel if not supplied, avoiding unnecessary attribute lookups
+        rel = rel or self.rel_class(
+            self,
+            to,
+            related_name=related_name,
+            related_query_name=related_query_name,
+            limit_choices_to=limit_choices_to,
+            parent_link=parent_link,
+            on_delete=on_delete,
+        )
 
+        # Directly pass relevant arguments to superclass constructor
         super().__init__(
             rel=rel,
             related_name=related_name,
@@ -562,6 +567,7 @@ class ForeignObject(RelatedField):
             **kwargs,
         )
 
+        # Assign values directly, no changes to original behavior
         self.from_fields = from_fields
         self.to_fields = to_fields
         self.swappable = swappable
@@ -1348,7 +1354,7 @@ class ManyToManyField(RelatedField):
         **kwargs,
     ):
         try:
-            to._meta
+            to_meta = to._meta
         except AttributeError:
             if not isinstance(to, str):
                 raise TypeError(
@@ -1736,40 +1742,55 @@ class ManyToManyField(RelatedField):
 
     def deconstruct(self):
         name, path, args, kwargs = super().deconstruct()
-        # Handle the simpler arguments.
-        if self.db_table is not None:
-            kwargs["db_table"] = self.db_table
-        if self.remote_field.db_constraint is not True:
-            kwargs["db_constraint"] = self.remote_field.db_constraint
+
+        # Hoist common attribute lookups to local variables
+        remote_field = self.remote_field
+        remote_model = remote_field.model
+        db_table = self.db_table
+        db_constraint = remote_field.db_constraint
+        through = getattr(remote_field, "through", None)
+
+        if db_table is not None:
+            kwargs["db_table"] = db_table
+        if db_constraint is not True:
+            kwargs["db_constraint"] = db_constraint
+
         # Lowercase model names as they should be treated as case-insensitive.
-        if isinstance(self.remote_field.model, str):
-            if "." in self.remote_field.model:
-                app_label, model_name = self.remote_field.model.split(".")
-                kwargs["to"] = "%s.%s" % (app_label, model_name.lower())
+        if isinstance(remote_model, str):
+            dot_idx = remote_model.find(".")
+            if dot_idx != -1:
+                # Avoid double splitting and string operations
+                app_label = remote_model[:dot_idx]
+                model_name = remote_model[dot_idx + 1 :]
+                kwargs["to"] = f"{app_label}.{model_name.lower()}"
             else:
-                kwargs["to"] = self.remote_field.model.lower()
+                kwargs["to"] = remote_model.lower()
         else:
-            kwargs["to"] = self.remote_field.model._meta.label_lower
-        if getattr(self.remote_field, "through", None) is not None:
-            if isinstance(self.remote_field.through, str):
-                kwargs["through"] = self.remote_field.through
-            elif not self.remote_field.through._meta.auto_created:
-                kwargs["through"] = self.remote_field.through._meta.label
-        # If swappable is True, then see if we're actually pointing to the target
-        # of a swap.
+            kwargs["to"] = remote_model._meta.label_lower
+
+        # Optimize through-related checks
+        if through is not None:
+            if isinstance(through, str):
+                kwargs["through"] = through
+            else:
+                through_meta = getattr(through, "_meta", None)
+                if through_meta and not through_meta.auto_created:
+                    kwargs["through"] = through_meta.label
+
+        # If swappable is True, then see if we're actually pointing to the target of a swap.
         swappable_setting = self.swappable_setting
         if swappable_setting is not None:
-            # If it's already a settings reference, error.
-            if hasattr(kwargs["to"], "setting_name"):
-                if kwargs["to"].setting_name != swappable_setting:
+            to_val = kwargs["to"]
+            setting_name = getattr(to_val, "setting_name", None)
+            if setting_name is not None:
+                if setting_name != swappable_setting:
                     raise ValueError(
                         "Cannot deconstruct a ManyToManyField pointing to a "
                         "model that is swapped in place of more than one model "
-                        "(%s and %s)" % (kwargs["to"].setting_name, swappable_setting)
+                        f"({setting_name} and {swappable_setting})"
                     )
-
             kwargs["to"] = SettingsReference(
-                kwargs["to"],
+                to_val,
                 swappable_setting,
             )
         return name, path, args, kwargs
