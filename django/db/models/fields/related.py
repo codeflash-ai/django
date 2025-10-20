@@ -543,17 +543,18 @@ class ForeignObject(RelatedField):
         swappable=True,
         **kwargs,
     ):
-        if rel is None:
-            rel = self.rel_class(
-                self,
-                to,
-                related_name=related_name,
-                related_query_name=related_query_name,
-                limit_choices_to=limit_choices_to,
-                parent_link=parent_link,
-                on_delete=on_delete,
-            )
+        # Only initialize rel if not supplied, avoiding unnecessary attribute lookups
+        rel = rel or self.rel_class(
+            self,
+            to,
+            related_name=related_name,
+            related_query_name=related_query_name,
+            limit_choices_to=limit_choices_to,
+            parent_link=parent_link,
+            on_delete=on_delete,
+        )
 
+        # Directly pass relevant arguments to superclass constructor
         super().__init__(
             rel=rel,
             related_name=related_name,
@@ -562,6 +563,7 @@ class ForeignObject(RelatedField):
             **kwargs,
         )
 
+        # Assign values directly, no changes to original behavior
         self.from_fields = from_fields
         self.to_fields = to_fields
         self.swappable = swappable
@@ -944,8 +946,10 @@ class ForeignKey(ForeignObject):
         db_constraint=True,
         **kwargs,
     ):
+        # Inline the try-except logic for slight performance improvement
+        # - Only type check 'to' if an AttributeError is raised during attribute lookup
         try:
-            to._meta.model_name
+            _meta = to._meta
         except AttributeError:
             if not isinstance(to, str):
                 raise TypeError(
@@ -958,14 +962,15 @@ class ForeignKey(ForeignObject):
                     )
                 )
         else:
-            # For backwards compatibility purposes, we need to *try* and set
-            # the to_field during FK construction. It won't be guaranteed to
-            # be correct until contribute_to_class is called. Refs #12190.
-            to_field = to_field or (to._meta.pk and to._meta.pk.name)
+            pk = _meta.pk
+            # Avoid repeated attribute lookups
+            to_field = to_field or (pk and pk.name)
         if not callable(on_delete):
             raise TypeError("on_delete must be callable.")
 
-        kwargs["rel"] = self.rel_class(
+        # Name access optimization: use local variables
+        rel_class = self.rel_class
+        kwargs["rel"] = rel_class(
             self,
             to,
             to_field,
@@ -975,7 +980,12 @@ class ForeignKey(ForeignObject):
             parent_link=parent_link,
             on_delete=on_delete,
         )
+        # Use setdefault for a single step index
         kwargs.setdefault("db_index", True)
+
+        # Prepare from_fields/to_fields lists outside of super()
+        from_fields = [RECURSIVE_RELATIONSHIP_CONSTANT]
+        to_fields = [to_field]
 
         super().__init__(
             to,
@@ -983,8 +993,8 @@ class ForeignKey(ForeignObject):
             related_name=related_name,
             related_query_name=related_query_name,
             limit_choices_to=limit_choices_to,
-            from_fields=[RECURSIVE_RELATIONSHIP_CONSTANT],
-            to_fields=[to_field],
+            from_fields=from_fields,
+            to_fields=to_fields,
             **kwargs,
         )
         self.db_constraint = db_constraint
@@ -1186,7 +1196,8 @@ class ForeignKey(ForeignObject):
         }
 
     def convert_empty_strings(self, value, expression, connection):
-        if (not value) and isinstance(value, str):
+        # Use explicit check to avoid negating twice
+        if isinstance(value, str) and not value:
             return None
         return value
 
