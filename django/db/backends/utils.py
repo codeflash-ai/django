@@ -273,11 +273,12 @@ def split_identifier(identifier):
     The identifier could be a table, column, or sequence name might be prefixed
     by a namespace.
     """
-    try:
-        namespace, name = identifier.split('"."')
-    except ValueError:
-        namespace, name = "", identifier
-    return namespace.strip('"'), name.strip('"')
+    idx = identifier.find('"."')
+    if idx != -1:
+        namespace = identifier[:idx]
+        name = identifier[idx + 3 :]
+        return namespace.strip('"'), name.strip('"')
+    return "", identifier
 
 
 def truncate_name(identifier, length=None, hash_len=4):
@@ -294,11 +295,10 @@ def truncate_name(identifier, length=None, hash_len=4):
         return identifier
 
     digest = names_digest(name, length=hash_len)
-    return "%s%s%s" % (
-        '%s"."' % namespace if namespace else "",
-        name[: length - hash_len],
-        digest,
-    )
+    if namespace:
+        return f'{namespace}"."{name[:length - hash_len]}{digest}'
+    else:
+        return f"{name[:length - hash_len]}{digest}"
 
 
 def names_digest(*args, length):
