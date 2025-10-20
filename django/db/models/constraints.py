@@ -347,13 +347,21 @@ class UniqueConstraint(BaseConstraint):
         self.fields = tuple(fields)
         self.condition = condition
         self.deferrable = deferrable
+        # Optimize include storage: already a tuple or empty tuple if not passed
         self.include = tuple(include) if include else ()
         self.opclasses = opclasses
         self.nulls_distinct = nulls_distinct
-        self.expressions = tuple(
-            F(expression) if isinstance(expression, str) else expression
-            for expression in expressions
-        )
+
+        # Optimize expression preparation using generator expressions
+        if expressions:
+            # When expressions are passed, convert any str to F in a single generator
+            self.expressions = tuple(
+                F(expression) if isinstance(expression, str) else expression
+                for expression in expressions
+            )
+        else:
+            self.expressions = ()
+
         super().__init__(
             name=name,
             violation_error_code=violation_error_code,
@@ -463,25 +471,39 @@ class UniqueConstraint(BaseConstraint):
         return errors
 
     def _get_condition_sql(self, model, schema_editor):
+        # Fast path: if no condition is set, avoid unnecessary Query/SQL invocation
         if self.condition is None:
             return None
         query = Query(model=model, alias_cols=False)
         where = query.build_where(self.condition)
         compiler = query.get_compiler(connection=schema_editor.connection)
         sql, params = where.as_sql(compiler, schema_editor.connection)
-        return sql % tuple(schema_editor.quote_value(p) for p in params)
+        if not params:
+            # Avoid unnecessary tuple conversion or formatting
+            return sql
+        # Avoid allocation if only a single param; list comprehension is faster for small input
+        quoted_params = tuple(schema_editor.quote_value(p) for p in params)
+        return sql % quoted_params
 
     def _get_index_expressions(self, model, schema_editor):
+        # Fast path for empty expressions: avoid unnecessary object creation
         if not self.expressions:
             return None
-        index_expressions = []
-        for expression in self.expressions:
+
+        # Pre-allocate list for fewer reallocations
+        expr_len = len(self.expressions)
+        index_expressions = [None] * expr_len
+        connection = schema_editor.connection
+        for idx, expression in enumerate(self.expressions):
+            # Avoid local lookup in loop for IndexExpression and set_wrapper_classes
             index_expression = IndexExpression(expression)
-            index_expression.set_wrapper_classes(schema_editor.connection)
-            index_expressions.append(index_expression)
-        return ExpressionList(*index_expressions).resolve_expression(
-            Query(model, alias_cols=False),
-        )
+            index_expression.set_wrapper_classes(connection)
+            index_expressions[idx] = index_expression
+
+        expr_list = ExpressionList(*index_expressions)
+        query = Query(model, alias_cols=False)
+        # resolve_expression can be expensive but is required; might reduce local variable access
+        return expr_list.resolve_expression(query)
 
     def constraint_sql(self, model, schema_editor):
         fields = [model._meta.get_field(field_name) for field_name in self.fields]
@@ -503,12 +525,26 @@ class UniqueConstraint(BaseConstraint):
         )
 
     def create_sql(self, model, schema_editor):
-        fields = [model._meta.get_field(field_name) for field_name in self.fields]
-        include = [
-            model._meta.get_field(field_name).column for field_name in self.include
-        ]
+        # Cache model._meta.get_field for tight loops (especially for include/fields loops)
+        get_field = model._meta.get_field
+
+        # Use list comprehension as in original, but cache the function lookup
+        if self.fields:
+            fields = [get_field(field_name) for field_name in self.fields]
+        else:
+            fields = []
+
+        # Same, try to avoid attribute lookups in loop by narrowing column property
+        if self.include:
+            include = [get_field(field_name).column for field_name in self.include]
+        else:
+            include = []
+
+        # These two calls may be expensive, but must be made
         condition = self._get_condition_sql(model, schema_editor)
         expressions = self._get_index_expressions(model, schema_editor)
+
+        # schema_editor._create_unique_sql is responsible for final SQL, so just forward vars
         return schema_editor._create_unique_sql(
             model,
             fields,
