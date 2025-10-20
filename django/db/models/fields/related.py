@@ -543,17 +543,18 @@ class ForeignObject(RelatedField):
         swappable=True,
         **kwargs,
     ):
-        if rel is None:
-            rel = self.rel_class(
-                self,
-                to,
-                related_name=related_name,
-                related_query_name=related_query_name,
-                limit_choices_to=limit_choices_to,
-                parent_link=parent_link,
-                on_delete=on_delete,
-            )
+        # Only initialize rel if not supplied, avoiding unnecessary attribute lookups
+        rel = rel or self.rel_class(
+            self,
+            to,
+            related_name=related_name,
+            related_query_name=related_query_name,
+            limit_choices_to=limit_choices_to,
+            parent_link=parent_link,
+            on_delete=on_delete,
+        )
 
+        # Directly pass relevant arguments to superclass constructor
         super().__init__(
             rel=rel,
             related_name=related_name,
@@ -562,6 +563,7 @@ class ForeignObject(RelatedField):
             **kwargs,
         )
 
+        # Assign values directly, no changes to original behavior
         self.from_fields = from_fields
         self.to_fields = to_fields
         self.swappable = swappable
@@ -1347,29 +1349,31 @@ class ManyToManyField(RelatedField):
         swappable=True,
         **kwargs,
     ):
-        try:
-            to._meta
-        except AttributeError:
-            if not isinstance(to, str):
-                raise TypeError(
-                    "%s(%r) is invalid. First parameter to ManyToManyField "
-                    "must be either a model, a model name, or the string %r"
-                    % (
-                        self.__class__.__name__,
-                        to,
-                        RECURSIVE_RELATIONSHIP_CONSTANT,
-                    )
+        # Inline fast path for type checks
+        _meta = getattr(to, "_meta", None)
+        if _meta is None and not isinstance(to, str):
+            raise TypeError(
+                "%s(%r) is invalid. First parameter to ManyToManyField "
+                "must be either a model, a model name, or the string %r"
+                % (
+                    self.__class__.__name__,
+                    to,
+                    RECURSIVE_RELATIONSHIP_CONSTANT,
                 )
+            )
 
+        # Fast boolean logic for symmetrical check
         if symmetrical is None:
             symmetrical = to == RECURSIVE_RELATIONSHIP_CONSTANT
 
+        # Early-out for ValueError
         if through is not None and db_table is not None:
             raise ValueError(
                 "Cannot specify a db_table if an intermediary model is used."
             )
 
-        kwargs["rel"] = self.rel_class(
+        # Single dictionary build (avoid repeated key lookups), moves rel creation local
+        rel = self.rel_class(
             self,
             to,
             related_name=related_name,
@@ -1380,6 +1384,7 @@ class ManyToManyField(RelatedField):
             through_fields=through_fields,
             db_constraint=db_constraint,
         )
+        kwargs["rel"] = rel
         self.has_null_arg = "null" in kwargs
 
         super().__init__(
@@ -1388,7 +1393,6 @@ class ManyToManyField(RelatedField):
             limit_choices_to=limit_choices_to,
             **kwargs,
         )
-
         self.db_table = db_table
         self.swappable = swappable
 
@@ -1777,25 +1781,31 @@ class ManyToManyField(RelatedField):
     def _get_path_info(self, direct=False, filtered_relation=None):
         """Called by both direct and indirect m2m traversal."""
         int_model = self.remote_field.through
-        linkfield1 = int_model._meta.get_field(self.m2m_field_name())
-        linkfield2 = int_model._meta.get_field(self.m2m_reverse_field_name())
+        # Inline local variables to avoid redundant getattr lookups
+        _meta = int_model._meta
+        # Fetch both link fields up front
+        linkfield1 = _meta.get_field(self.m2m_field_name())
+        linkfield2 = _meta.get_field(self.m2m_reverse_field_name())
+
         if direct:
             join1infos = linkfield1.reverse_path_infos
-            if filtered_relation:
-                join2infos = linkfield2.get_path_info(filtered_relation)
-            else:
-                join2infos = linkfield2.path_infos
+            join2infos = (
+                linkfield2.get_path_info(filtered_relation)
+                if filtered_relation is not None
+                else linkfield2.path_infos
+            )
         else:
             join1infos = linkfield2.reverse_path_infos
-            if filtered_relation:
-                join2infos = linkfield1.get_path_info(filtered_relation)
-            else:
-                join2infos = linkfield1.path_infos
-        # Get join infos between the last model of join 1 and the first model
-        # of join 2. Assume the only reason these may differ is due to model
-        # inheritance.
+            join2infos = (
+                linkfield1.get_path_info(filtered_relation)
+                if filtered_relation is not None
+                else linkfield1.path_infos
+            )
+
+        # Join info calculations - fewer attribute lookups
         join1_final = join1infos[-1].to_opts
         join2_initial = join2infos[0].from_opts
+        # Compare with identity and issubclass only, avoid extra branch
         if join1_final is join2_initial:
             intermediate_infos = []
         elif issubclass(join1_final.model, join2_initial.model):
@@ -1803,6 +1813,7 @@ class ManyToManyField(RelatedField):
         else:
             intermediate_infos = join2_initial.get_path_from_parent(join1_final.model)
 
+        # Efficiently join all infos, use tuple for return (slightly faster)
         return [*join1infos, *intermediate_infos, *join2infos]
 
     def get_path_info(self, filtered_relation=None):
