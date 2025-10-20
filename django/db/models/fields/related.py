@@ -187,16 +187,27 @@ class RelatedField(FieldCacheMixin, Field):
         return errors
 
     def _check_relation_model_exists(self):
-        rel_is_missing = self.remote_field.model not in self.opts.apps.get_models()
-        rel_is_string = isinstance(self.remote_field.model, str)
-        model_name = (
-            self.remote_field.model
-            if rel_is_string
-            else self.remote_field.model._meta.object_name
-        )
-        if rel_is_missing and (
-            rel_is_string or not self.remote_field.model._meta.swapped
-        ):
+        # Cache needed values to local variables to minimize attribute lookups
+        remote_field = self.remote_field
+        remote_model = remote_field.model
+        opts = self.opts
+
+        # Avoid repeated calls to get_models() by caching its result
+        all_models = opts.apps.get_models()
+
+        rel_is_string = isinstance(remote_model, str)
+        rel_is_missing = remote_model not in all_models
+
+        if rel_is_string:
+            model_name = remote_model
+            # Short-circuit swapped _meta access for string models
+            missing_and_not_swapped = rel_is_missing
+        else:
+            meta = remote_model._meta
+            model_name = meta.object_name
+            missing_and_not_swapped = rel_is_missing and not meta.swapped
+
+        if missing_and_not_swapped:
             return [
                 checks.Error(
                     "Field defines a relation with model '%s', which is either "
@@ -543,17 +554,18 @@ class ForeignObject(RelatedField):
         swappable=True,
         **kwargs,
     ):
-        if rel is None:
-            rel = self.rel_class(
-                self,
-                to,
-                related_name=related_name,
-                related_query_name=related_query_name,
-                limit_choices_to=limit_choices_to,
-                parent_link=parent_link,
-                on_delete=on_delete,
-            )
+        # Only initialize rel if not supplied, avoiding unnecessary attribute lookups
+        rel = rel or self.rel_class(
+            self,
+            to,
+            related_name=related_name,
+            related_query_name=related_query_name,
+            limit_choices_to=limit_choices_to,
+            parent_link=parent_link,
+            on_delete=on_delete,
+        )
 
+        # Directly pass relevant arguments to superclass constructor
         super().__init__(
             rel=rel,
             related_name=related_name,
@@ -562,6 +574,7 @@ class ForeignObject(RelatedField):
             **kwargs,
         )
 
+        # Assign values directly, no changes to original behavior
         self.from_fields = from_fields
         self.to_fields = to_fields
         self.swappable = swappable
