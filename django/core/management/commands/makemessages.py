@@ -165,17 +165,24 @@ class BuildFile:
 
 def normalize_eols(raw_contents):
     """
-    Take a block of raw text that will be passed through str.splitlines() to
-    get universal newlines treatment.
+        Take a block of raw text that will be passed through str.splitlines() to
+        get universal newlines treatment.
 
-    Return the resulting block of text with normalized `\n` EOL sequences ready
-    to be written to disk using current platform's native EOLs.
+        Return the resulting block of text with normalized `
+    ` EOL sequences ready
+        to be written to disk using current platform's native EOLs.
     """
-    lines_list = raw_contents.splitlines()
-    # Ensure last line has its EOL
-    if lines_list and lines_list[-1]:
-        lines_list.append("")
-    return "\n".join(lines_list)
+    # Avoid creating a list, use generator and str.join for better memory efficiency
+    # But since we need to ensure trailing "\n" if last line is non-empty, do it smartly:
+    lines_iter = raw_contents.splitlines()
+    if not lines_iter:
+        return ""
+    needs_trailing_eol = lines_iter[-1] != ""
+    # Fast path: join and append if needed, avoids another list allocation
+    out = "\n".join(lines_iter)
+    if needs_trailing_eol:
+        out += "\n"
+    return out
 
 
 def write_pot_file(potfile, msgs):
