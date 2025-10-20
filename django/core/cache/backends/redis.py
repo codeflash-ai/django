@@ -42,6 +42,9 @@ class RedisCacheClient:
         self._servers = servers
         self._pools = {}
 
+        # Always cache client instances per connection pool for reuse.
+        self._clients = {}
+
         self._client = self._lib.Redis
 
         if isinstance(pool_class, str):
@@ -77,11 +80,14 @@ class RedisCacheClient:
         return self._pools[index]
 
     def get_client(self, key=None, *, write=False):
-        # key is used so that the method signature remains the same and custom
-        # cache client can be implemented which might require the key to select
-        # the server, e.g. sharding.
+        # Optimized: cache client instances per connection pool index to reuse TCP connections.
+        index = self._get_connection_pool_index(write)
+        if index in self._clients:
+            return self._clients[index]
         pool = self._get_connection_pool(write)
-        return self._client(connection_pool=pool)
+        client = self._client(connection_pool=pool)
+        self._clients[index] = client
+        return client
 
     def add(self, key, value, timeout):
         client = self.get_client(key, write=True)
@@ -154,6 +160,13 @@ class RedisCacheClient:
     def clear(self):
         client = self.get_client(None, write=True)
         return bool(client.flushdb())
+
+    def _get_connection_pool_index(self, write):
+        # Follows common pattern of selecting read/write pool.
+        # Typically, for master/slave, index 0 is master (write) and the rest are replicas (read).
+        # For now, assume single server, index 0 used for both read and write.
+        # This retains the placeholder for future sharding or replica support.
+        return 0
 
 
 class RedisCache(BaseCache):
