@@ -543,17 +543,18 @@ class ForeignObject(RelatedField):
         swappable=True,
         **kwargs,
     ):
-        if rel is None:
-            rel = self.rel_class(
-                self,
-                to,
-                related_name=related_name,
-                related_query_name=related_query_name,
-                limit_choices_to=limit_choices_to,
-                parent_link=parent_link,
-                on_delete=on_delete,
-            )
+        # Only initialize rel if not supplied, avoiding unnecessary attribute lookups
+        rel = rel or self.rel_class(
+            self,
+            to,
+            related_name=related_name,
+            related_query_name=related_query_name,
+            limit_choices_to=limit_choices_to,
+            parent_link=parent_link,
+            on_delete=on_delete,
+        )
 
+        # Directly pass relevant arguments to superclass constructor
         super().__init__(
             rel=rel,
             related_name=related_name,
@@ -562,6 +563,7 @@ class ForeignObject(RelatedField):
             **kwargs,
         )
 
+        # Assign values directly, no changes to original behavior
         self.from_fields = from_fields
         self.to_fields = to_fields
         self.swappable = swappable
@@ -710,19 +712,33 @@ class ForeignObject(RelatedField):
             raise ValueError(
                 "Related model %r cannot be resolved" % self.remote_field.model
             )
-        related_fields = []
-        for from_field_name, to_field_name in zip(self.from_fields, self.to_fields):
-            from_field = (
-                self
-                if from_field_name == RECURSIVE_RELATIONSHIP_CONSTANT
-                else self.opts.get_field(from_field_name)
+
+        # Optimization: local variable lookups and loop hoisting for attributes
+        from_fields = self.from_fields
+        to_fields = self.to_fields
+        opts = self.opts
+        RECURSIVE = RECURSIVE_RELATIONSHIP_CONSTANT
+        remote_model = self.remote_field.model
+        model_meta = remote_model._meta
+        model_meta_pk = model_meta.pk
+        model_meta_get_field = model_meta.get_field
+
+        # Use list comprehension and tuple packing for efficient append
+        related_fields = [
+            (
+                (
+                    self
+                    if from_field_name == RECURSIVE
+                    else opts.get_field(from_field_name)
+                ),
+                (
+                    model_meta_pk
+                    if to_field_name is None
+                    else model_meta_get_field(to_field_name)
+                ),
             )
-            to_field = (
-                self.remote_field.model._meta.pk
-                if to_field_name is None
-                else self.remote_field.model._meta.get_field(to_field_name)
-            )
-            related_fields.append((from_field, to_field))
+            for from_field_name, to_field_name in zip(from_fields, to_fields)
+        ]
         return related_fields
 
     @cached_property
