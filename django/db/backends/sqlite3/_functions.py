@@ -279,16 +279,24 @@ def _sqlite_time_diff(lhs, rhs):
         return None
     left = typecast_time(lhs)
     right = typecast_time(rhs)
-    return (
-        (left.hour * 60 * 60 * 1000000)
-        + (left.minute * 60 * 1000000)
-        + (left.second * 1000000)
-        + (left.microsecond)
-        - (right.hour * 60 * 60 * 1000000)
-        - (right.minute * 60 * 1000000)
-        - (right.second * 1000000)
-        - (right.microsecond)
+    # Precompute multipliers for clarity and potential performance improvement
+    MICROSECONDS_PER_HOUR = 60 * 60 * 1000000
+    MICROSECONDS_PER_MINUTE = 60 * 1000000
+    MICROSECONDS_PER_SECOND = 1000000
+
+    left_total = (
+        left.hour * MICROSECONDS_PER_HOUR
+        + left.minute * MICROSECONDS_PER_MINUTE
+        + left.second * MICROSECONDS_PER_SECOND
+        + left.microsecond
     )
+    right_total = (
+        right.hour * MICROSECONDS_PER_HOUR
+        + right.minute * MICROSECONDS_PER_MINUTE
+        + right.second * MICROSECONDS_PER_SECOND
+        + right.microsecond
+    )
+    return left_total - right_total
 
 
 def _sqlite_timestamp_diff(lhs, rhs):
