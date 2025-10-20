@@ -38,6 +38,9 @@ from .related_lookups import (
     RelatedLessThanOrEqual,
 )
 from .reverse_related import ForeignObjectRel, ManyToManyRel, ManyToOneRel, OneToOneRel
+import keyword
+
+KEYWORDS_SET = set(keyword.kwlist)
 
 RECURSIVE_RELATIONSHIP_CONSTANT = "self"
 
@@ -126,31 +129,32 @@ class RelatedField(FieldCacheMixin, Field):
         ]
 
     def _check_related_name_is_valid(self):
-        import keyword
-
-        related_name = self.remote_field.related_name
+        related_field = (
+            self.remote_field
+        )  # Local variable to avoid repeated attribute lookups
+        related_name = related_field.related_name
         if related_name is None:
             return []
-        is_valid_id = (
-            not keyword.iskeyword(related_name) and related_name.isidentifier()
-        )
+        # Fast set-lookup for keyword
+        is_valid_id = related_name not in KEYWORDS_SET and related_name.isidentifier()
         if not (is_valid_id or related_name.endswith("+")):
-            return [
-                checks.Error(
-                    "The name '%s' is invalid related_name for field %s.%s"
-                    % (
-                        self.remote_field.related_name,
-                        self.model._meta.object_name,
-                        self.name,
-                    ),
-                    hint=(
-                        "Related name must be a valid Python identifier or end with a "
-                        "'+'"
-                    ),
-                    obj=self,
-                    id="fields.E306",
-                )
-            ]
+            object_name = self.model._meta.object_name  # Local variable for reuse
+            name = self.name  # Local variable for reuse
+            error = checks.Error(
+                "The name '%s' is invalid related_name for field %s.%s"
+                % (
+                    related_name,
+                    object_name,
+                    name,
+                ),
+                hint=(
+                    "Related name must be a valid Python identifier or end with a "
+                    "'+'"
+                ),
+                obj=self,
+                id="fields.E306",
+            )
+            return [error]
         return []
 
     def _check_related_query_name_is_valid(self):
@@ -543,17 +547,18 @@ class ForeignObject(RelatedField):
         swappable=True,
         **kwargs,
     ):
-        if rel is None:
-            rel = self.rel_class(
-                self,
-                to,
-                related_name=related_name,
-                related_query_name=related_query_name,
-                limit_choices_to=limit_choices_to,
-                parent_link=parent_link,
-                on_delete=on_delete,
-            )
+        # Only initialize rel if not supplied, avoiding unnecessary attribute lookups
+        rel = rel or self.rel_class(
+            self,
+            to,
+            related_name=related_name,
+            related_query_name=related_query_name,
+            limit_choices_to=limit_choices_to,
+            parent_link=parent_link,
+            on_delete=on_delete,
+        )
 
+        # Directly pass relevant arguments to superclass constructor
         super().__init__(
             rel=rel,
             related_name=related_name,
@@ -562,6 +567,7 @@ class ForeignObject(RelatedField):
             **kwargs,
         )
 
+        # Assign values directly, no changes to original behavior
         self.from_fields = from_fields
         self.to_fields = to_fields
         self.swappable = swappable
