@@ -543,17 +543,18 @@ class ForeignObject(RelatedField):
         swappable=True,
         **kwargs,
     ):
-        if rel is None:
-            rel = self.rel_class(
-                self,
-                to,
-                related_name=related_name,
-                related_query_name=related_query_name,
-                limit_choices_to=limit_choices_to,
-                parent_link=parent_link,
-                on_delete=on_delete,
-            )
+        # Only initialize rel if not supplied, avoiding unnecessary attribute lookups
+        rel = rel or self.rel_class(
+            self,
+            to,
+            related_name=related_name,
+            related_query_name=related_query_name,
+            limit_choices_to=limit_choices_to,
+            parent_link=parent_link,
+            on_delete=on_delete,
+        )
 
+        # Directly pass relevant arguments to superclass constructor
         super().__init__(
             rel=rel,
             related_name=related_name,
@@ -562,6 +563,7 @@ class ForeignObject(RelatedField):
             **kwargs,
         )
 
+        # Assign values directly, no changes to original behavior
         self.from_fields = from_fields
         self.to_fields = to_fields
         self.swappable = swappable
@@ -586,20 +588,31 @@ class ForeignObject(RelatedField):
             return []
 
         errors = []
+        meta = self.remote_field.model._meta
+        forward_fields_map = getattr(meta, "_forward_fields_map", None)
+        fields_map = getattr(meta, "fields_map", None)
+
         for to_field in self.to_fields:
             if to_field:
-                try:
-                    self.remote_field.model._meta.get_field(to_field)
-                except exceptions.FieldDoesNotExist:
-                    errors.append(
-                        checks.Error(
-                            "The to_field '%s' doesn't exist on the related "
-                            "model '%s'."
-                            % (to_field, self.remote_field.model._meta.label),
-                            obj=self,
-                            id="fields.E312",
+                # Fast path: check precomputed field maps if they exist
+                if forward_fields_map and to_field in forward_fields_map:
+                    continue
+                elif fields_map and to_field in fields_map:
+                    continue
+                else:
+                    # Fallback: use get_field as in original logic
+                    try:
+                        meta.get_field(to_field)
+                    except exceptions.FieldDoesNotExist:
+                        errors.append(
+                            checks.Error(
+                                "The to_field '%s' doesn't exist on the related "
+                                "model '%s'."
+                                % (to_field, self.remote_field.model._meta.label),
+                                obj=self,
+                                id="fields.E312",
+                            )
                         )
-                    )
         return errors
 
     def _check_unique_target(self):
