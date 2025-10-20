@@ -543,17 +543,18 @@ class ForeignObject(RelatedField):
         swappable=True,
         **kwargs,
     ):
-        if rel is None:
-            rel = self.rel_class(
-                self,
-                to,
-                related_name=related_name,
-                related_query_name=related_query_name,
-                limit_choices_to=limit_choices_to,
-                parent_link=parent_link,
-                on_delete=on_delete,
-            )
+        # Only initialize rel if not supplied, avoiding unnecessary attribute lookups
+        rel = rel or self.rel_class(
+            self,
+            to,
+            related_name=related_name,
+            related_query_name=related_query_name,
+            limit_choices_to=limit_choices_to,
+            parent_link=parent_link,
+            on_delete=on_delete,
+        )
 
+        # Directly pass relevant arguments to superclass constructor
         super().__init__(
             rel=rel,
             related_name=related_name,
@@ -562,6 +563,7 @@ class ForeignObject(RelatedField):
             **kwargs,
         )
 
+        # Assign values directly, no changes to original behavior
         self.from_fields = from_fields
         self.to_fields = to_fields
         self.swappable = swappable
@@ -1347,10 +1349,11 @@ class ManyToManyField(RelatedField):
         swappable=True,
         **kwargs,
     ):
-        try:
-            to._meta
-        except AttributeError:
-            if not isinstance(to, str):
+        # Faster type and attribute checking
+        if not isinstance(to, str):
+            # Only do attr access if not string, avoid unnecessary exception cost
+            to_meta = getattr(to, "_meta", None)
+            if to_meta is None:
                 raise TypeError(
                     "%s(%r) is invalid. First parameter to ManyToManyField "
                     "must be either a model, a model name, or the string %r"
@@ -1838,20 +1841,25 @@ class ManyToManyField(RelatedField):
         column name for the m2m table.
         """
         cache_attr = "_m2m_%s_cache" % attr
-        if hasattr(self, cache_attr):
-            return getattr(self, cache_attr)
-        if self.remote_field.through_fields is not None:
-            link_field_name = self.remote_field.through_fields[0]
-        else:
-            link_field_name = None
-        for f in self.remote_field.through._meta.fields:
+        cached = getattr(self, cache_attr, None)
+        if cached is not None:
+            return cached
+        # Avoid repeated attribute lookups
+        remote_field = self.remote_field
+        through_fields = remote_field.through_fields
+        link_field_name = through_fields[0] if through_fields is not None else None
+        # Reuse model for comparison to minimize attribute access cost in loop
+        rel_model = related.related_model
+        for f in remote_field.through._meta.fields:
+            # Store fields and do comparisons as local variables for speed
             if (
                 f.is_relation
-                and f.remote_field.model == related.related_model
+                and f.remote_field.model is rel_model
                 and (link_field_name is None or link_field_name == f.name)
             ):
-                setattr(self, cache_attr, getattr(f, attr))
-                return getattr(self, cache_attr)
+                value = getattr(f, attr)
+                setattr(self, cache_attr, value)
+                return value
 
     def _get_m2m_reverse_attr(self, related, attr):
         """
