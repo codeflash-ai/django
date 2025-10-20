@@ -129,16 +129,25 @@ def get_command_line_option(argv, option):
 
 def normalize_path_patterns(patterns):
     """Normalize an iterable of glob style patterns based on OS."""
-    patterns = [os.path.normcase(p) for p in patterns]
-    dir_suffixes = {"%s*" % path_sep for path_sep in {"/", os.sep}}
+    # Only compute os.path.normcase once per CALL, outside loop, for fast local lookups
+    normcase = os.path.normcase
+    # Compute dir_suffixes once, outside the function if possible; but since os.sep could change, it's safe to keep here
+    # Precompute tuple for fast membership test
+    dir_suffixes = ("%s*" % path_sep for path_sep in {"/", os.sep})
+    dir_suffixes = tuple(dir_suffixes)
+
+    patterns = [normcase(p) for p in patterns]
+    # Pre-size the list if possible (less frequent resizing)
     norm_patterns = []
+    append_norm = norm_patterns.append
+
     for pattern in patterns:
         for dir_suffix in dir_suffixes:
             if pattern.endswith(dir_suffix):
-                norm_patterns.append(pattern.removesuffix(dir_suffix))
+                append_norm(pattern[: -len(dir_suffix)])
                 break
         else:
-            norm_patterns.append(pattern)
+            append_norm(pattern)
     return norm_patterns
 
 
@@ -147,14 +156,20 @@ def is_ignored_path(path, ignore_patterns):
     Check if the given path should be ignored or not based on matching
     one of the glob style `ignore_patterns`.
     """
-    path = Path(path)
+    # Fast local variable assignment
+    _Path = Path
+    path_obj = _Path(path)
+    name = path_obj.name
+    str_path = str(path_obj)
+    fnmatchcase = fnmatch.fnmatchcase
+    # Only normalize once per function call
+    norm_patterns = normalize_path_patterns(ignore_patterns)
 
-    def ignore(pattern):
-        return fnmatch.fnmatchcase(path.name, pattern) or fnmatch.fnmatchcase(
-            str(path), pattern
-        )
-
-    return any(ignore(pattern) for pattern in normalize_path_patterns(ignore_patterns))
+    # Use a simple for loop instead of generator/any to short-circuit ASAP (very slightly faster)
+    for pattern in norm_patterns:
+        if fnmatchcase(name, pattern) or fnmatchcase(str_path, pattern):
+            return True
+    return False
 
 
 def find_formatters():
