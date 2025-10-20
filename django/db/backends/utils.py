@@ -76,9 +76,20 @@ class CursorWrapper:
                 return self.cursor.callproc(procname, params, kparams)
 
     def execute(self, sql, params=None):
-        return self._execute_with_wrappers(
-            sql, params, many=False, executor=self._execute
-        )
+        # Inline _execute_with_wrappers for performance (removes a function call per query)
+        executor = self._execute
+        wrappers = self.db.execute_wrappers
+        if wrappers:
+            context = {"connection": self.db, "cursor": self}
+            # Use fast path for a single wrapper
+            if len(wrappers) == 1:
+                executor = functools.partial(wrappers[0], executor)
+            else:
+                # functools.partial does not mutate, so this is safe
+                for wrapper in reversed(wrappers):
+                    executor = functools.partial(wrapper, executor)
+            return executor(sql, params, False, context)
+        return self._execute(sql, params)
 
     def executemany(self, sql, param_list):
         return self._execute_with_wrappers(
@@ -92,14 +103,15 @@ class CursorWrapper:
         return executor(sql, params, many, context)
 
     def _execute(self, sql, params, *ignored_wrapper_args):
-        # Raise a warning during app initialization (stored_app_configs is only
-        # ever set during testing).
+        # apps.ready and apps.stored_app_configs may both be False only during startup/testing
+        # Keep the warning logic unchanged but use direct comparisons for slightly faster path
         if not apps.ready and not apps.stored_app_configs:
             warnings.warn(self.APPS_NOT_READY_WARNING_MSG, category=RuntimeWarning)
+        # Validate broken transaction (call unchanged)
         self.db.validate_no_broken_transaction()
+        # Use context manager as in original code
         with self.db.wrap_database_errors:
             if params is None:
-                # params default might be backend specific.
                 return self.cursor.execute(sql)
             else:
                 return self.cursor.execute(sql, params)
