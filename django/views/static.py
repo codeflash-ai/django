@@ -14,6 +14,8 @@ from django.utils.http import http_date, parse_http_date
 from django.utils.translation import gettext as _
 from django.utils.translation import gettext_lazy
 
+_template_base = Path(__file__).parent / "templates"
+
 
 def builtin_template_path(name):
     """
@@ -22,7 +24,7 @@ def builtin_template_path(name):
     Avoid calling this function at the module level or in a class-definition
     because __file__ may not exist, e.g. in frozen environments.
     """
-    return Path(__file__).parent / "templates" / name
+    return _template_base / name
 
 
 def serve(request, path, document_root=None, show_indexes=False):
