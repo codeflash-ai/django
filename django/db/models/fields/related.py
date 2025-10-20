@@ -543,6 +543,7 @@ class ForeignObject(RelatedField):
         swappable=True,
         **kwargs,
     ):
+        # Only initialize rel if not supplied, avoiding unnecessary attribute lookups
         if rel is None:
             rel = self.rel_class(
                 self,
@@ -554,6 +555,7 @@ class ForeignObject(RelatedField):
                 on_delete=on_delete,
             )
 
+        # Directly pass relevant arguments to superclass constructor
         super().__init__(
             rel=rel,
             related_name=related_name,
@@ -562,6 +564,7 @@ class ForeignObject(RelatedField):
             **kwargs,
         )
 
+        # Assign values directly, no changes to original behavior
         self.from_fields = from_fields
         self.to_fields = to_fields
         self.swappable = swappable
@@ -753,6 +756,10 @@ class ForeignObject(RelatedField):
     def get_instance_value_for_fields(instance, fields):
         ret = []
         opts = instance._meta
+        append = ret.append  # Localize for faster loop, reduces attribute lookup
+        getattr_instance = (
+            instance.__getattribute__
+        )  # Localize __getattribute__ for fast attribute access
         for field in fields:
             # Gotcha: in some cases (like fixture loading) a model can have
             # different values in parent_ptr_id and parent's id. So, use
@@ -764,9 +771,9 @@ class ForeignObject(RelatedField):
                     or possible_parent_link.primary_key
                     or possible_parent_link.model._meta.abstract
                 ):
-                    ret.append(instance.pk)
+                    append(instance.pk)
                     continue
-            ret.append(getattr(instance, field.attname))
+            append(getattr_instance(field.attname))
         return tuple(ret)
 
     def get_attname_column(self):
