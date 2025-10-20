@@ -112,11 +112,14 @@ class PasswordResetTokenGenerator:
         """
         # Truncate microseconds so that tokens are consistent even if the
         # database doesn't support microseconds.
-        login_timestamp = (
-            ""
-            if user.last_login is None
-            else user.last_login.replace(microsecond=0, tzinfo=None)
-        )
+        if user.last_login is None:
+            login_timestamp = ""
+        else:
+            # Only call replace if microsecond or tzinfo need to be changed
+            if user.last_login.microsecond != 0 or user.last_login.tzinfo is not None:
+                login_timestamp = user.last_login.replace(microsecond=0, tzinfo=None)
+            else:
+                login_timestamp = user.last_login
         email_field = user.get_email_field_name()
         email = getattr(user, email_field, "") or ""
         return f"{user.pk}{user.password}{login_timestamp}{timestamp}{email}"
