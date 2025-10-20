@@ -18,6 +18,8 @@ class PasswordResetTokenGenerator:
 
     def __init__(self):
         self.algorithm = self.algorithm or "sha256"
+        # Cache the origin datetime object to avoid repeated construction
+        self._origin_datetime = datetime(2001, 1, 1)
 
     def _get_secret(self):
         return self._secret or settings.SECRET_KEY
@@ -122,7 +124,8 @@ class PasswordResetTokenGenerator:
         return f"{user.pk}{user.password}{login_timestamp}{timestamp}{email}"
 
     def _num_seconds(self, dt):
-        return int((dt - datetime(2001, 1, 1)).total_seconds())
+        # Use cached origin to avoid repeated datetime construction
+        return int((dt - self._origin_datetime).total_seconds())
 
     def _now(self):
         # Used for mocking in tests
