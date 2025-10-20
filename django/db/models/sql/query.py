@@ -795,15 +795,19 @@ class Query(BaseExpression):
         # loaded. If a relational field is encountered it gets added to the
         # mask for it be considered if `select_related` and the cycle continues
         # by recursively calling this function.
+
+        pop = mask.pop  # Localizing for performance in tight loops
+        setdefault = select_mask.setdefault
+
         for field in opts.concrete_fields:
-            field_mask = mask.pop(field.name, None)
-            field_att_mask = mask.pop(field.attname, None)
+            field_mask = pop(field.name, None)
+            field_att_mask = pop(field.attname, None)
             if field_mask is None and field_att_mask is None:
-                select_mask.setdefault(field, {})
+                setdefault(field, {})
             elif field_mask:
                 if not field.is_relation:
                     raise FieldError(next(iter(field_mask)))
-                field_select_mask = select_mask.setdefault(field, {})
+                field_select_mask = setdefault(field, {})
                 related_model = field.remote_field.model._meta.concrete_model
                 self._get_defer_select_mask(
                     related_model._meta, field_mask, field_select_mask
@@ -811,10 +815,14 @@ class Query(BaseExpression):
         # Remaining defer entries must be references to reverse relationships.
         # The following code is expected to raise FieldError if it encounters
         # a malformed defer entry.
-        for field_name, field_mask in mask.items():
-            if filtered_relation := self._filtered_relations.get(field_name):
+        field_items = mask.items()
+        filtered_relations = self._filtered_relations
+        setdefault = select_mask.setdefault  # relocalize due to pop loop
+        for field_name, field_mask in field_items:
+            filtered_relation = filtered_relations.get(field_name)
+            if filtered_relation:
                 relation = opts.get_field(filtered_relation.relation_name)
-                field_select_mask = select_mask.setdefault((field_name, relation), {})
+                field_select_mask = setdefault((field_name, relation), {})
                 field = relation.field
             else:
                 reverse_rel = opts.get_field(field_name)
@@ -826,7 +834,7 @@ class Query(BaseExpression):
                 if not hasattr(reverse_rel, "field"):
                     continue
                 field = reverse_rel.field
-                field_select_mask = select_mask.setdefault(field, {})
+                field_select_mask = setdefault(field, {})
             related_model = field.model._meta.concrete_model
             self._get_defer_select_mask(
                 related_model._meta, field_mask, field_select_mask
@@ -838,15 +846,18 @@ class Query(BaseExpression):
             select_mask = {}
         select_mask[opts.pk] = {}
         # Only include fields mentioned in the mask.
-        for field_name, field_mask in mask.items():
-            field = opts.get_field(field_name)
+        field_items = mask.items()
+        setdefault = select_mask.setdefault
+        opts_related_objects = opts.related_objects
+
+        get_field = opts.get_field
+
+        for field_name, field_mask in field_items:
+            field = get_field(field_name)
             # Retrieve the actual field associated with reverse relationships
             # as that's what is expected in the select mask.
-            if field in opts.related_objects:
-                field_key = field.field
-            else:
-                field_key = field
-            field_select_mask = select_mask.setdefault(field_key, {})
+            field_key = field.field if field in opts_related_objects else field
+            field_select_mask = setdefault(field_key, {})
             if field_mask:
                 if not field.is_relation:
                     raise FieldError(next(iter(field_mask)))
@@ -869,10 +880,13 @@ class Query(BaseExpression):
         if not field_names:
             return {}
         mask = {}
+        LOOKUP_SEP_str = LOOKUP_SEP  # localize for perf
+        setdefault = dict.setdefault
+
         for field_name in field_names:
             part_mask = mask
-            for part in field_name.split(LOOKUP_SEP):
-                part_mask = part_mask.setdefault(part, {})
+            for part in field_name.split(LOOKUP_SEP_str):
+                part_mask = setdefault(part_mask, part, {})
         opts = self.get_meta()
         if defer:
             return self._get_defer_select_mask(opts, mask)
