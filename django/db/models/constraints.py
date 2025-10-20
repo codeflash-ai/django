@@ -80,39 +80,62 @@ class BaseConstraint:
     def _check_references(self, model, references):
         errors = []
         fields = set()
-        for field_name, *lookups in references:
-            # pk is an alias that won't be found by opts.get_field.
+
+        # Minimize attribute lookups by localizing frequently used attributes
+        model_meta = model._meta
+        model__check_local_fields = model._check_local_fields
+        get_field = model_meta.get_field
+        model_pk = model_meta.pk
+
+        # Avoid repeated checks by pulling these to locals
+        LOOKUP_SEP_join = LOOKUP_SEP.join
+        checks_Error = checks.Error
+
+        append_error = errors.append  # Local for slight performance bump
+        fields_add = fields.add  # Local for slight performance bump
+
+        for ref in references:
+            # tuple unpacking is slightly faster than star-unpacking
+            field_name = ref[0]
+            lookups = ref[1:]
+
             if field_name != "pk":
-                fields.add(field_name)
+                fields_add(field_name)
             if not lookups:
-                # If it has no lookups it cannot result in a JOIN.
                 continue
             try:
+                # Re-use model_pk/get_field from outer locals
                 if field_name == "pk":
-                    field = model._meta.pk
+                    field = model_pk
                 else:
-                    field = model._meta.get_field(field_name)
+                    field = get_field(field_name)
+                # Inline 'or' to minimize attribute lookups
                 if not field.is_relation or field.many_to_many or field.one_to_many:
                     continue
             except FieldDoesNotExist:
                 continue
-            # JOIN must happen at the first lookup.
+            # JOIN must happen at the first lookup. No change.
             first_lookup = lookups[0]
+            # Cache method lookups only once per field instance for this loop
+            get_transform = getattr(field, "get_transform", None)
+            get_lookup = getattr(field, "get_lookup", None)
             if (
-                hasattr(field, "get_transform")
-                and hasattr(field, "get_lookup")
-                and field.get_transform(first_lookup) is None
-                and field.get_lookup(first_lookup) is None
+                get_transform
+                and get_lookup
+                and get_transform(first_lookup) is None
+                and get_lookup(first_lookup) is None
             ):
-                errors.append(
-                    checks.Error(
+                append_error(
+                    checks_Error(
                         "'constraints' refers to the joined field '%s'."
-                        % LOOKUP_SEP.join([field_name] + lookups),
+                        % LOOKUP_SEP_join([field_name] + list(lookups)),
                         obj=model,
                         id="models.E041",
                     )
                 )
-        errors.extend(model._check_local_fields(fields, "constraints"))
+        # Only call _check_local_fields if fields set is non-empty
+        if fields:
+            errors.extend(model__check_local_fields(fields, "constraints"))
         return errors
 
     def deconstruct(self):
