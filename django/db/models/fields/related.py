@@ -543,17 +543,18 @@ class ForeignObject(RelatedField):
         swappable=True,
         **kwargs,
     ):
-        if rel is None:
-            rel = self.rel_class(
-                self,
-                to,
-                related_name=related_name,
-                related_query_name=related_query_name,
-                limit_choices_to=limit_choices_to,
-                parent_link=parent_link,
-                on_delete=on_delete,
-            )
+        # Only initialize rel if not supplied, avoiding unnecessary attribute lookups
+        rel = rel or self.rel_class(
+            self,
+            to,
+            related_name=related_name,
+            related_query_name=related_query_name,
+            limit_choices_to=limit_choices_to,
+            parent_link=parent_link,
+            on_delete=on_delete,
+        )
 
+        # Directly pass relevant arguments to superclass constructor
         super().__init__(
             rel=rel,
             related_name=related_name,
@@ -562,6 +563,7 @@ class ForeignObject(RelatedField):
             **kwargs,
         )
 
+        # Assign values directly, no changes to original behavior
         self.from_fields = from_fields
         self.to_fields = to_fields
         self.swappable = swappable
@@ -608,30 +610,45 @@ class ForeignObject(RelatedField):
             return []
 
         try:
-            self.foreign_related_fields
+            foreign_related_fields = self.foreign_related_fields
         except exceptions.FieldDoesNotExist:
             return []
 
-        if not self.foreign_related_fields:
+        if not foreign_related_fields:
             return []
 
-        has_unique_constraint = any(
-            rel_field.unique for rel_field in self.foreign_related_fields
-        )
-        if not has_unique_constraint:
-            foreign_fields = {f.name for f in self.foreign_related_fields}
-            remote_opts = self.remote_field.model._meta
-            has_unique_constraint = any(
-                frozenset(ut) <= foreign_fields for ut in remote_opts.unique_together
-            ) or any(
-                frozenset(uc.fields) <= foreign_fields
-                for uc in remote_opts.total_unique_constraints
-            )
+        # Fast path: check per-field uniqueness directly
+        for rel_field in foreign_related_fields:
+            if rel_field.unique:
+                has_unique_constraint = True
+                break
+        else:
+            has_unique_constraint = False
 
         if not has_unique_constraint:
-            if len(self.foreign_related_fields) > 1:
+            # Create the foreign_fields set only once
+            foreign_fields = {f.name for f in foreign_related_fields}
+            remote_opts = self.remote_field.model._meta
+
+            # Use generator comprehension with early exit for unique_together
+            for ut in remote_opts.unique_together:
+                if frozenset(ut) <= foreign_fields:
+                    has_unique_constraint = True
+                    break
+            else:
+                # Use generator comprehension with early exit for UniqueConstraint.fields
+                for uc in remote_opts.total_unique_constraints:
+                    if frozenset(uc.fields) <= foreign_fields:
+                        has_unique_constraint = True
+                        break
+                else:
+                    has_unique_constraint = False
+
+        if not has_unique_constraint:
+            if len(foreign_related_fields) > 1:
+                # Build field_combination string efficiently
                 field_combination = ", ".join(
-                    f"'{rel_field.name}'" for rel_field in self.foreign_related_fields
+                    f"'{rel_field.name}'" for rel_field in foreign_related_fields
                 )
                 model_name = self.remote_field.model.__name__
                 return [
@@ -649,7 +666,7 @@ class ForeignObject(RelatedField):
                     )
                 ]
             else:
-                field_name = self.foreign_related_fields[0].name
+                field_name = foreign_related_fields[0].name
                 model_name = self.remote_field.model.__name__
                 return [
                     checks.Error(
