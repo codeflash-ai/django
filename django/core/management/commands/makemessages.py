@@ -24,6 +24,10 @@ from django.utils.regex_helper import _lazy_re_compile
 from django.utils.text import get_text_list
 from django.utils.translation import templatize
 
+_locale_re1 = re.compile(r"^[a-z]+$")
+
+_locale_re2 = re.compile(r"^[a-z]+_[A-Z].*$")
+
 plural_forms_re = _lazy_re_compile(
     r'^(?P<value>"Plural-Forms.+?\\n")\s*$', re.MULTILINE | re.DOTALL
 )
@@ -41,7 +45,7 @@ def check_programs(*programs):
 
 
 def is_valid_locale(locale):
-    return re.match(r"^[a-z]+$", locale) or re.match(r"^[a-z]+_[A-Z].*$", locale)
+    return _locale_re1.match(locale) or _locale_re2.match(locale)
 
 
 @total_ordering
