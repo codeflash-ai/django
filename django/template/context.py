@@ -7,6 +7,7 @@ _builtin_context_processors = ("django.template.context_processors.csrf",)
 
 class ContextPopException(Exception):
     "pop() has been called more times than push()"
+
     pass
 
 
@@ -161,6 +162,8 @@ class Context(BaseContext):
 
     def update(self, other_dict):
         "Push other_dict to the stack of dictionaries in the Context"
+        if isinstance(other_dict, dict):
+            return ContextDict(self, other_dict)
         if not hasattr(other_dict, "__getitem__"):
             raise TypeError("other_dict must be a mapping (dictionary-like) object.")
         if isinstance(other_dict, BaseContext):
