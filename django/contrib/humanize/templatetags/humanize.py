@@ -17,6 +17,10 @@ from django.utils.translation import (
     round_away_from_one,
 )
 
+_ORDINAL_11_13_TH = None
+
+_ORDINAL_SUFFIX_TEMPLATES = None
+
 register = template.Library()
 
 
@@ -26,15 +30,17 @@ def ordinal(value):
     Convert an integer to its ordinal as a string. 1 is '1st', 2 is '2nd',
     3 is '3rd', etc. Works for any integer.
     """
+    global _ORDINAL_11_13_TH, _ORDINAL_SUFFIX_TEMPLATES
     try:
         value = int(value)
     except (TypeError, ValueError):
         return value
-    if value % 100 in (11, 12, 13):
-        # Translators: Ordinal format for 11 (11th), 12 (12th), and 13 (13th).
-        value = pgettext("ordinal 11, 12, 13", "{}th").format(value)
-    else:
-        templates = (
+
+    # Initialize and cache translation templates only once
+    if _ORDINAL_11_13_TH is None:
+        _ORDINAL_11_13_TH = pgettext("ordinal 11, 12, 13", "{}th")
+    if _ORDINAL_SUFFIX_TEMPLATES is None:
+        _ORDINAL_SUFFIX_TEMPLATES = (
             # Translators: Ordinal format when value ends with 0, e.g. 80th.
             pgettext("ordinal 0", "{}th"),
             # Translators: Ordinal format when value ends with 1, e.g. 81st, except 11.
@@ -56,6 +62,12 @@ def ordinal(value):
             # Translators: Ordinal format when value ends with 9, e.g. 89th.
             pgettext("ordinal 9", "{}th"),
         )
+
+    if value % 100 in (11, 12, 13):
+        # Translators: Ordinal format for 11 (11th), 12 (12th), and 13 (13th).
+        value = _ORDINAL_11_13_TH.format(value)
+    else:
+        templates = _ORDINAL_SUFFIX_TEMPLATES
         value = templates[value % 10].format(value)
     # Mark value safe so i18n does not break with <sup> or <sub> see #19988
     return mark_safe(value)
