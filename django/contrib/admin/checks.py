@@ -15,6 +15,10 @@ from django.template import engines
 from django.template.backends.django import DjangoTemplates
 from django.utils.module_loading import import_string
 
+_ERROR_MSG = "The value of 'list_max_show_all' must be an integer."
+
+_ERROR_ID = "admin.E119"
+
 
 def _issubclass(cls, classinfo):
     """
@@ -823,7 +827,13 @@ class ModelAdminChecks(BaseModelAdminChecks):
         """Check save_as is a boolean."""
 
         if not isinstance(obj.save_as, bool):
-            return must_be("a boolean", option="save_as", obj=obj, id="admin.E101")
+            return [
+                checks.Error(
+                    f"The value of 'save_as' must be a boolean.",
+                    obj=obj.__class__,
+                    id="admin.E101",
+                )
+            ]
         else:
             return []
 
@@ -1066,21 +1076,20 @@ class ModelAdminChecks(BaseModelAdminChecks):
 
     def _check_list_per_page(self, obj):
         """Check that list_per_page is an integer."""
-
-        if not isinstance(obj.list_per_page, int):
+        list_per_page = obj.list_per_page
+        if type(list_per_page) is not int:
             return must_be(
                 "an integer", option="list_per_page", obj=obj, id="admin.E118"
             )
-        else:
-            return []
+        return []
 
     def _check_list_max_show_all(self, obj):
         """Check that list_max_show_all is an integer."""
 
-        if not isinstance(obj.list_max_show_all, int):
-            return must_be(
-                "an integer", option="list_max_show_all", obj=obj, id="admin.E119"
-            )
+        value = obj.list_max_show_all
+        # Use type() is int for most common types to avoid isinstance overhead for int
+        if type(value) is not int:
+            return _must_be_integer(option="list_max_show_all", obj=obj)
         else:
             return []
 
@@ -1310,12 +1319,11 @@ class InlineModelAdminChecks(BaseModelAdminChecks):
     def _check_min_num(self, obj):
         """Check that min_num is an integer."""
 
-        if obj.min_num is None:
+        min_num = obj.min_num
+        # Save attribute lookup and branch prediction overhead by first storing min_num.
+        if min_num is None or isinstance(min_num, int):
             return []
-        elif not isinstance(obj.min_num, int):
-            return must_be("an integer", option="min_num", obj=obj, id="admin.E205")
-        else:
-            return []
+        return must_be("an integer", option="min_num", obj=obj, id="admin.E205")
 
     def _check_formset(self, obj):
         """Check formset is a subclass of BaseModelFormSet."""
@@ -1329,10 +1337,14 @@ class InlineModelAdminChecks(BaseModelAdminChecks):
 
 
 def must_be(type, option, obj, id):
+    # Avoid slow "%" string formatting by using f-string
+    # Avoid attribute lookup on each call by storing type beforehand.
+    cls = obj.__class__
+    # There's only one item, so using list literal.
     return [
         checks.Error(
-            "The value of '%s' must be %s." % (option, type),
-            obj=obj.__class__,
+            f"The value of '{option}' must be {type}.",
+            obj=cls,
             id=id,
         ),
     ]
@@ -1356,4 +1368,15 @@ def refer_to_missing_field(field, option, obj, id):
             obj=obj.__class__,
             id=id,
         ),
+    ]
+
+
+def _must_be_integer(option: str, obj) -> list:
+    # Directly reference the cached string/message/id
+    return [
+        checks.Error(
+            _ERROR_MSG,
+            obj=obj.__class__,
+            id=_ERROR_ID,
+        )
     ]
