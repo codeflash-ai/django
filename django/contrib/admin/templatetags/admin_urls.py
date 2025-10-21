@@ -10,7 +10,7 @@ register = template.Library()
 
 @register.filter
 def admin_urlname(value, arg):
-    return "admin:%s_%s_%s" % (value.app_label, value.model_name, arg)
+    return f"admin:{value.app_label}_{value.model_name}_{arg}"
 
 
 @register.filter
