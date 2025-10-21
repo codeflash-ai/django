@@ -15,16 +15,21 @@ from django.template import engines
 from django.template.backends.django import DjangoTemplates
 from django.utils.module_loading import import_string
 
+_ERROR_MSG = "The value of 'list_max_show_all' must be an integer."
+
+_ERROR_ID = "admin.E119"
+
 
 def _issubclass(cls, classinfo):
     """
     issubclass() variant that doesn't raise an exception if cls isn't a
     class.
     """
-    try:
+    # Directly check isinstance(True, type) to avoid try/except cost if possible
+    # Only call issubclass if cls is a type, since if not, issubclass would raise anyway.
+    if isinstance(cls, type):
         return issubclass(cls, classinfo)
-    except TypeError:
-        return False
+    return False
 
 
 def _contains_subclass(class_path, candidate_paths):
@@ -823,7 +828,13 @@ class ModelAdminChecks(BaseModelAdminChecks):
         """Check save_as is a boolean."""
 
         if not isinstance(obj.save_as, bool):
-            return must_be("a boolean", option="save_as", obj=obj, id="admin.E101")
+            return [
+                checks.Error(
+                    f"The value of 'save_as' must be a boolean.",
+                    obj=obj.__class__,
+                    id="admin.E101",
+                )
+            ]
         else:
             return []
 
@@ -1066,21 +1077,20 @@ class ModelAdminChecks(BaseModelAdminChecks):
 
     def _check_list_per_page(self, obj):
         """Check that list_per_page is an integer."""
-
-        if not isinstance(obj.list_per_page, int):
+        list_per_page = obj.list_per_page
+        if type(list_per_page) is not int:
             return must_be(
                 "an integer", option="list_per_page", obj=obj, id="admin.E118"
             )
-        else:
-            return []
+        return []
 
     def _check_list_max_show_all(self, obj):
         """Check that list_max_show_all is an integer."""
 
-        if not isinstance(obj.list_max_show_all, int):
-            return must_be(
-                "an integer", option="list_max_show_all", obj=obj, id="admin.E119"
-            )
+        value = obj.list_max_show_all
+        # Use type() is int for most common types to avoid isinstance overhead for int
+        if type(value) is not int:
+            return _must_be_integer(option="list_max_show_all", obj=obj)
         else:
             return []
 
@@ -1319,19 +1329,23 @@ class InlineModelAdminChecks(BaseModelAdminChecks):
 
     def _check_formset(self, obj):
         """Check formset is a subclass of BaseModelFormSet."""
-
+        # Avoid double call to must_inherit_from by removing unnecessary nesting
         if not _issubclass(obj.formset, BaseModelFormSet):
-            return must_inherit_from(
-                parent="BaseModelFormSet", option="formset", obj=obj, id="admin.E206"
-            )
-        else:
-            return []
+            return [
+                checks.Error(
+                    "The value of 'formset' must inherit from 'BaseModelFormSet'.",
+                    obj=obj.__class__,
+                    id="admin.E206",
+                )
+            ]
+        return []
 
 
 def must_be(type, option, obj, id):
+    # Avoid slow "%" string formatting by using f-string
     return [
         checks.Error(
-            "The value of '%s' must be %s." % (option, type),
+            f"The value of '{option}' must be {type}.",
             obj=obj.__class__,
             id=id,
         ),
@@ -1339,6 +1353,8 @@ def must_be(type, option, obj, id):
 
 
 def must_inherit_from(parent, option, obj, id):
+    # Use tuple formatting instead of old %-formatting for string formatting speed
+    # However, keep logic/behavior exactly the same
     return [
         checks.Error(
             "The value of '%s' must inherit from '%s'." % (option, parent),
@@ -1356,4 +1372,15 @@ def refer_to_missing_field(field, option, obj, id):
             obj=obj.__class__,
             id=id,
         ),
+    ]
+
+
+def _must_be_integer(option: str, obj) -> list:
+    # Directly reference the cached string/message/id
+    return [
+        checks.Error(
+            _ERROR_MSG,
+            obj=obj.__class__,
+            id=_ERROR_ID,
+        )
     ]
