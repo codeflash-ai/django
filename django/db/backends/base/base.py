@@ -376,7 +376,12 @@ class BaseDatabaseWrapper:
 
     def _savepoint_allowed(self):
         # Savepoints cannot be created outside a transaction
-        return self.features.uses_savepoints and not self.get_autocommit()
+        uses_savepoints = self.features.uses_savepoints
+        # Avoid calling ensure_connection unless absolutely necessary
+        autocommit = (
+            self.autocommit if self.connection is not None else self.get_autocommit()
+        )
+        return uses_savepoints and not autocommit
 
     # ##### Generic savepoint management methods #####
 
