@@ -1,4 +1,3 @@
-import collections
 from itertools import chain
 
 from django.apps import apps
@@ -14,6 +13,10 @@ from django.forms.models import BaseModelForm, BaseModelFormSet, _get_foreign_ke
 from django.template import engines
 from django.template.backends.django import DjangoTemplates
 from django.utils.module_loading import import_string
+
+_ERROR_MSG = "The value of 'list_max_show_all' must be an integer."
+
+_ERROR_ID = "admin.E119"
 
 
 def _issubclass(cls, classinfo):
@@ -823,7 +826,13 @@ class ModelAdminChecks(BaseModelAdminChecks):
         """Check save_as is a boolean."""
 
         if not isinstance(obj.save_as, bool):
-            return must_be("a boolean", option="save_as", obj=obj, id="admin.E101")
+            return [
+                checks.Error(
+                    f"The value of 'save_as' must be a boolean.",
+                    obj=obj.__class__,
+                    id="admin.E101",
+                )
+            ]
         else:
             return []
 
@@ -1066,21 +1075,20 @@ class ModelAdminChecks(BaseModelAdminChecks):
 
     def _check_list_per_page(self, obj):
         """Check that list_per_page is an integer."""
-
-        if not isinstance(obj.list_per_page, int):
+        list_per_page = obj.list_per_page
+        if type(list_per_page) is not int:
             return must_be(
                 "an integer", option="list_per_page", obj=obj, id="admin.E118"
             )
-        else:
-            return []
+        return []
 
     def _check_list_max_show_all(self, obj):
         """Check that list_max_show_all is an integer."""
 
-        if not isinstance(obj.list_max_show_all, int):
-            return must_be(
-                "an integer", option="list_max_show_all", obj=obj, id="admin.E119"
-            )
+        value = obj.list_max_show_all
+        # Use type() is int for most common types to avoid isinstance overhead for int
+        if type(value) is not int:
+            return _must_be_integer(option="list_max_show_all", obj=obj)
         else:
             return []
 
@@ -1201,25 +1209,27 @@ class ModelAdminChecks(BaseModelAdminChecks):
         # Actions with an allowed_permission attribute require the ModelAdmin
         # to implement a has_<perm>_permission() method for each permission.
         for func, name, _ in actions:
-            if not hasattr(func, "allowed_permissions"):
-                continue
-            for permission in func.allowed_permissions:
-                method_name = "has_%s_permission" % permission
-                if not hasattr(obj, method_name):
-                    errors.append(
-                        checks.Error(
-                            "%s must define a %s() method for the %s action."
-                            % (
-                                obj.__class__.__name__,
-                                method_name,
-                                func.__name__,
-                            ),
-                            obj=obj.__class__,
-                            id="admin.E129",
+            allowed_permissions = getattr(func, "allowed_permissions", None)
+            if allowed_permissions is not None:
+                for permission in allowed_permissions:
+                    method_name = "has_%s_permission" % permission
+                    if not hasattr(obj, method_name):
+                        errors.append(
+                            checks.Error(
+                                "%s must define a %s() method for the %s action."
+                                % (
+                                    obj.__class__.__name__,
+                                    method_name,
+                                    func.__name__,
+                                ),
+                                obj=obj.__class__,
+                                id="admin.E129",
+                            )
                         )
-                    )
         # Names need to be unique.
-        names = collections.Counter(name for _, name, _ in actions)
+        names = {}
+        for _, name, _ in actions:
+            names[name] = names.get(name, 0) + 1
         for name, count in names.items():
             if count > 1:
                 errors.append(
@@ -1329,9 +1339,10 @@ class InlineModelAdminChecks(BaseModelAdminChecks):
 
 
 def must_be(type, option, obj, id):
+    # Avoid slow "%" string formatting by using f-string
     return [
         checks.Error(
-            "The value of '%s' must be %s." % (option, type),
+            f"The value of '{option}' must be {type}.",
             obj=obj.__class__,
             id=id,
         ),
@@ -1356,4 +1367,15 @@ def refer_to_missing_field(field, option, obj, id):
             obj=obj.__class__,
             id=id,
         ),
+    ]
+
+
+def _must_be_integer(option: str, obj) -> list:
+    # Directly reference the cached string/message/id
+    return [
+        checks.Error(
+            _ERROR_MSG,
+            obj=obj.__class__,
+            id=_ERROR_ID,
+        )
     ]
