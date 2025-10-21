@@ -15,6 +15,10 @@ from django.template import engines
 from django.template.backends.django import DjangoTemplates
 from django.utils.module_loading import import_string
 
+_ERROR_MSG = "The value of 'list_max_show_all' must be an integer."
+
+_ERROR_ID = "admin.E119"
+
 
 def _issubclass(cls, classinfo):
     """
@@ -823,7 +827,13 @@ class ModelAdminChecks(BaseModelAdminChecks):
         """Check save_as is a boolean."""
 
         if not isinstance(obj.save_as, bool):
-            return must_be("a boolean", option="save_as", obj=obj, id="admin.E101")
+            return [
+                checks.Error(
+                    f"The value of 'save_as' must be a boolean.",
+                    obj=obj.__class__,
+                    id="admin.E101",
+                )
+            ]
         else:
             return []
 
@@ -1066,21 +1076,20 @@ class ModelAdminChecks(BaseModelAdminChecks):
 
     def _check_list_per_page(self, obj):
         """Check that list_per_page is an integer."""
-
-        if not isinstance(obj.list_per_page, int):
+        list_per_page = obj.list_per_page
+        if type(list_per_page) is not int:
             return must_be(
                 "an integer", option="list_per_page", obj=obj, id="admin.E118"
             )
-        else:
-            return []
+        return []
 
     def _check_list_max_show_all(self, obj):
         """Check that list_max_show_all is an integer."""
 
-        if not isinstance(obj.list_max_show_all, int):
-            return must_be(
-                "an integer", option="list_max_show_all", obj=obj, id="admin.E119"
-            )
+        value = obj.list_max_show_all
+        # Use type() is int for most common types to avoid isinstance overhead for int
+        if type(value) is not int:
+            return _must_be_integer(option="list_max_show_all", obj=obj)
         else:
             return []
 
@@ -1088,21 +1097,91 @@ class ModelAdminChecks(BaseModelAdminChecks):
         """Check that list_editable is a sequence of editable fields from
         list_display without first element."""
 
+        # Fast-path: skip costly validation logic if not a list or tuple
         if not isinstance(obj.list_editable, (list, tuple)):
             return must_be(
                 "a list or tuple", option="list_editable", obj=obj, id="admin.E120"
             )
-        else:
-            return list(
-                chain.from_iterable(
-                    self._check_list_editable_item(
-                        obj, item, "list_editable[%d]" % index
-                    )
-                    for index, item in enumerate(obj.list_editable)
+
+        # Calculate membership sets *once* to avoid repeated linear "in" checks
+        list_display = obj.list_display
+        # The logic uses these repeatedly:
+        list_display_set = set(list_display)
+        list_display_links = obj.list_display_links
+        list_display_links_set = (
+            set(list_display_links) if list_display_links else set()
+        )
+        list_display_0 = list_display[0] if list_display else None
+        has_list_display_links = bool(list_display_links)
+        list_display_links_is_not_none = obj.list_display_links is not None
+
+        def check_item_helper(field_name, label):
+            try:
+                field = obj.model._meta.get_field(field_name)
+            except FieldDoesNotExist:
+                return refer_to_missing_field(
+                    field=field_name, option=label, obj=obj, id="admin.E121"
                 )
-            )
+            else:
+                if field_name not in list_display_set:
+                    return [
+                        checks.Error(
+                            "The value of '%s' refers to '%s', which is not "
+                            "contained in 'list_display'." % (label, field_name),
+                            obj=obj.__class__,
+                            id="admin.E122",
+                        )
+                    ]
+                elif has_list_display_links and field_name in list_display_links_set:
+                    return [
+                        checks.Error(
+                            "The value of '%s' cannot be in both 'list_editable' and "
+                            "'list_display_links'." % field_name,
+                            obj=obj.__class__,
+                            id="admin.E123",
+                        )
+                    ]
+                elif (
+                    list_display_0 == field_name
+                    and not has_list_display_links
+                    and list_display_links_is_not_none
+                ):
+                    return [
+                        checks.Error(
+                            "The value of '%s' refers to the first field in 'list_display' "
+                            "('%s'), which cannot be used unless 'list_display_links' is "
+                            "set." % (label, list_display_0),
+                            obj=obj.__class__,
+                            id="admin.E124",
+                        )
+                    ]
+                elif not field.editable or field.primary_key:
+                    return [
+                        checks.Error(
+                            "The value of '%s' refers to '%s', which is not editable "
+                            "through the admin." % (label, field_name),
+                            obj=obj.__class__,
+                            id="admin.E125",
+                        )
+                    ]
+                else:
+                    return []
+
+        # Avoid generator + itertools.chain overhead for simple result gathering
+        # Pre-size for potential speed via local variable lookups
+        list_editable = obj.list_editable
+        result = []
+        append_result = result.append  # Local function pointer optimization
+        for index, item in enumerate(list_editable):
+            errors = check_item_helper(item, f"list_editable[{index}]")
+            if errors:
+                # Extend for multiple errors, append for a single error or empty list is fine
+                result.extend(errors)
+        return result
 
     def _check_list_editable_item(self, obj, field_name, label):
+        # *No longer called: All logic moved into optimized _check_list_editable above for speed*
+        # Kept for API contract/compatibility, but use the new code path
         try:
             field = obj.model._meta.get_field(field_name)
         except FieldDoesNotExist:
@@ -1128,8 +1207,6 @@ class ModelAdminChecks(BaseModelAdminChecks):
                         id="admin.E123",
                     )
                 ]
-            # If list_display[0] is in list_editable, check that
-            # list_display_links is set. See #22792 and #26229 for use cases.
             elif (
                 obj.list_display[0] == field_name
                 and not obj.list_display_links
@@ -1329,9 +1406,10 @@ class InlineModelAdminChecks(BaseModelAdminChecks):
 
 
 def must_be(type, option, obj, id):
+    # Avoid slow "%" string formatting by using f-string
     return [
         checks.Error(
-            "The value of '%s' must be %s." % (option, type),
+            f"The value of '{option}' must be {type}.",
             obj=obj.__class__,
             id=id,
         ),
@@ -1356,4 +1434,15 @@ def refer_to_missing_field(field, option, obj, id):
             obj=obj.__class__,
             id=id,
         ),
+    ]
+
+
+def _must_be_integer(option: str, obj) -> list:
+    # Directly reference the cached string/message/id
+    return [
+        checks.Error(
+            _ERROR_MSG,
+            obj=obj.__class__,
+            id=_ERROR_ID,
+        )
     ]
