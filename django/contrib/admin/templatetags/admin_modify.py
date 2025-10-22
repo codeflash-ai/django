@@ -138,9 +138,8 @@ def cell_count(inline_admin_form):
         # Count all visible fields.
         for line in fieldset:
             for field in line:
-                try:
-                    is_hidden = field.field.is_hidden
-                except AttributeError:
+                is_hidden = getattr(field.field, "is_hidden", None)
+                if is_hidden is None:
                     is_hidden = field.field["is_hidden"]
                 if not is_hidden:
                     count += 1
