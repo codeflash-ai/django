@@ -88,18 +88,24 @@ def get_git_changeset():
     # module.
     if "__file__" not in globals():
         return None
-    repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    # Avoid repeated calls to OS and Python stdlib
+    abspath = os.path.abspath(__file__)
+    repo_dir = os.path.dirname(os.path.dirname(abspath))
+
+    # Use a tuple argument for subprocess for slightly improved startup time and safety
     git_log = subprocess.run(
-        "git log --pretty=format:%ct --quiet -1 HEAD",
+        ["git", "log", "--pretty=format:%ct", "--quiet", "-1", "HEAD"],
         capture_output=True,
-        shell=True,
         cwd=repo_dir,
         text=True,
     )
-    timestamp = git_log.stdout
-    tz = datetime.timezone.utc
+    timestamp_str = git_log.stdout.strip()
+    if not timestamp_str:
+        return None
     try:
-        timestamp = datetime.datetime.fromtimestamp(int(timestamp), tz=tz)
+        # Avoid unnecessary timezone object creation in hot paths
+        timestamp = datetime.datetime.utcfromtimestamp(int(timestamp_str))
     except ValueError:
         return None
     return timestamp.strftime("%Y%m%d%H%M%S")
