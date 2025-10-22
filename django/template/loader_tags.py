@@ -55,16 +55,16 @@ class BlockNode(Node):
                 context["block"] = self
                 result = self.nodelist.render(context)
             else:
-                push = block = block_context.pop(self.name)
+                block = block_context.pop(self.name)
                 if block is None:
                     block = self
                 # Create new block so we can store context without thread-safety issues.
-                block = type(self)(block.name, block.nodelist)
-                block.context = context
-                context["block"] = block
-                result = block.nodelist.render(context)
-                if push is not None:
-                    block_context.push(self.name, push)
+                new_block = type(self)(block.name, block.nodelist)
+                new_block.context = context
+                context["block"] = new_block
+                result = new_block.nodelist.render(context)
+                if block is not None:
+                    block_context.push(self.name, block)
         return result
 
     def super(self):
@@ -74,10 +74,8 @@ class BlockNode(Node):
                 "{{ block.super }} in a base template?" % self.__class__.__name__
             )
         render_context = self.context.render_context
-        if (
-            BLOCK_CONTEXT_KEY in render_context
-            and render_context[BLOCK_CONTEXT_KEY].get_block(self.name) is not None
-        ):
+        block_ctx = render_context.get(BLOCK_CONTEXT_KEY)
+        if block_ctx is not None and block_ctx.get_block(self.name) is not None:
             return mark_safe(self.render(self.context))
         return ""
 
