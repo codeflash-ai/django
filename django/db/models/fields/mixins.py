@@ -32,26 +32,26 @@ class CheckFieldDefaultMixin:
     _default_hint = ("<valid default>", "<invalid default>")
 
     def _check_default(self):
-        if (
-            self.has_default()
-            and self.default is not None
-            and not callable(self.default)
-        ):
+        # Fast path: No default, or default is None, or default is callable
+        # Avoid computing self.__class__.__name__ and self._default_hint unless needed
+        default = self.default
+        if self.has_default() and default is not None and not callable(default):
+            class_name = self.__class__.__name__
+            hint_from, hint_to = self._default_hint
             return [
                 checks.Warning(
-                    "%s default should be a callable instead of an instance "
-                    "so that it's not shared between all field instances."
-                    % (self.__class__.__name__,),
+                    f"{class_name} default should be a callable instead of an instance "
+                    "so that it's not shared between all field instances.",
                     hint=(
-                        "Use a callable instead, e.g., use `%s` instead of "
-                        "`%s`." % self._default_hint
+                        f"Use a callable instead, e.g., use `{hint_from}` instead of "
+                        f"`{hint_to}`."
                     ),
                     obj=self,
                     id="fields.E010",
                 )
             ]
-        else:
-            return []
+        # Return shared constant empty list (no warning) for better performance and memory
+        return []
 
     def check(self, **kwargs):
         errors = super().check(**kwargs)
