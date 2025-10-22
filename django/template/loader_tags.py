@@ -33,10 +33,10 @@ class BlockContext:
         self.blocks[name].append(block)
 
     def get_block(self, name):
-        try:
-            return self.blocks[name][-1]
-        except IndexError:
-            return None
+        block_list = self.blocks[name]
+        if block_list:
+            return block_list[-1]
+        return None
 
 
 class BlockNode(Node):
