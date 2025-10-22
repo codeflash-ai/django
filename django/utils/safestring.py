@@ -67,6 +67,6 @@ def mark_safe(s):
     """
     if hasattr(s, "__html__"):
         return s
-    if callable(s):
+    elif callable(s):
         return _safety_decorator(mark_safe, s)
     return SafeString(s)
