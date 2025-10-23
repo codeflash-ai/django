@@ -30,11 +30,17 @@ from urllib.parse import urlparse
 from django.utils.encoding import iri_to_uri
 from django.utils.xmlutils import SimplerXMLGenerator
 
+_format_datetime = email.utils.format_datetime
+
+_datetime = datetime.datetime
+
+_time = datetime.time
+
 
 def rfc2822_date(date):
-    if not isinstance(date, datetime.datetime):
-        date = datetime.datetime.combine(date, datetime.time())
-    return email.utils.format_datetime(date)
+    if not isinstance(date, _datetime):
+        date = _datetime.combine(date, _time())
+    return _format_datetime(date)
 
 
 def rfc3339_date(date):
