@@ -198,10 +198,11 @@ class BaseExpression:
         ) + self.output_field.get_db_converters(connection)
 
     def get_source_expressions(self):
-        return []
+        return ()
 
     def set_source_expressions(self, exprs):
-        assert not exprs
+        if exprs:
+            assert not exprs
 
     def _parse_expressions(self, *expressions):
         return [
@@ -286,16 +287,21 @@ class BaseExpression:
         """
         c = self.copy()
         c.is_summary = summarize
-        c.set_source_expressions(
-            [
-                (
-                    expr.resolve_expression(query, allow_joins, reuse, summarize)
-                    if expr
-                    else None
-                )
-                for expr in c.get_source_expressions()
-            ]
-        )
+        src_exprs = c.get_source_expressions()
+        # Only compute transformed expressions if there are any source expressions
+        if src_exprs:
+            c.set_source_expressions(
+                [
+                    (
+                        expr.resolve_expression(query, allow_joins, reuse, summarize)
+                        if expr
+                        else None
+                    )
+                    for expr in src_exprs
+                ]
+            )
+        else:
+            c.set_source_expressions(src_exprs)
         return c
 
     @property
@@ -425,7 +431,11 @@ class BaseExpression:
         return refs
 
     def copy(self):
-        return copy.copy(self)
+        cls = self.__class__
+        result = cls.__new__(cls)
+        # Shallow copy, as before, but use __dict__ copy like copy.copy(self)
+        result.__dict__.update(self.__dict__)
+        return result
 
     def prefix_references(self, prefix):
         clone = self.copy()
