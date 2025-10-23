@@ -181,24 +181,37 @@ def common_roots(paths):
     # Inspired from Werkzeug:
     # https://github.com/pallets/werkzeug/blob/7477be2853df70a022d9613e765581b9411c3c39/werkzeug/_reloader.py
     # Create a sorted list of the path components, longest first.
-    path_parts = sorted([x.parts for x in paths], key=len, reverse=True)
+
+    # Optimize: pre-allocate the list with a generator expression for slightly better memory efficiency
+    path_parts = sorted((x.parts for x in paths), key=len, reverse=True)
+
     tree = {}
     for chunks in path_parts:
         node = tree
         # Add each part of the path to the tree.
         for chunk in chunks:
-            node = node.setdefault(chunk, {})
+            # Optimize: avoid setdefault allocation for final node when we clear anyway
+            if chunk not in node:
+                node[chunk] = {}
+            node = node[chunk]
         # Clear the last leaf in the tree.
-        node.clear()
+        # Micro-optimization: only clear if non-empty (avoid redundant dict clears)
+        if node:
+            node.clear()
 
-    # Turn the tree into a list of Path instances.
-    def _walk(node, path):
-        for prefix, child in node.items():
-            yield from _walk(child, path + (prefix,))
+    # Optimize: Replace recursive generator with iterative version to reduce Python frame overhead,
+    # but maintain tuple return and all behavioral aspects
+    result = []
+    stack = [(tree, ())]
+    while stack:
+        node, path = stack.pop()
         if not node:
-            yield Path(*path)
-
-    return tuple(_walk(tree, ()))
+            result.append(Path(*path))
+        else:
+            # reversed so results match original pre-order traversal order
+            for prefix, child in reversed(list(node.items())):
+                stack.append((child, path + (prefix,)))
+    return tuple(result)
 
 
 def sys_path_directories():
