@@ -1124,25 +1124,34 @@ def lorem(parser, token):
       and two random paragraphs each wrapped in HTML ``<p>`` tags
     * ``{% lorem 2 w random %}`` outputs two random latin words
     """
-    bits = list(token.split_contents())
+    bits = token.split_contents()
     tagname = bits[0]
-    # Random bit
-    common = bits[-1] != "random"
-    if not common:
-        bits.pop()
-    # Method bit
-    if bits[-1] in ("w", "p", "b"):
-        method = bits.pop()
-    else:
-        method = "b"
-    # Count bit
-    if len(bits) > 1:
-        count = bits.pop()
-    else:
-        count = "1"
-    count = parser.compile_filter(count)
-    if len(bits) != 1:
+
+    bits_len = len(bits)
+    common = True
+    method = "b"
+    count = "1"
+
+    # Fast path for random bit
+    if bits and bits[-1] == "random":
+        common = False
+        bits_len -= 1
+
+    # Fast path for method bit
+    if bits_len > 1 and bits[bits_len - 1] in ("w", "p", "b"):
+        method = bits[bits_len - 1]
+        bits_len -= 1
+
+    # Fast path for count bit
+    if bits_len > 1:
+        count = bits[bits_len - 1]
+        bits_len -= 1
+
+    # Remaining bits should be the tagname
+    if bits_len != 1:
         raise TemplateSyntaxError("Incorrect format for %r tag" % tagname)
+
+    count = parser.compile_filter(count)
     return LoremNode(count, method, common)
 
 
