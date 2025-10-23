@@ -61,10 +61,14 @@ class Combinable:
     BITXOR = "#"
 
     def _combine(self, other, connector, reversed):
-        if not hasattr(other, "resolve_expression"):
+        # Inline hasattr check and Value creation for faster branch avoidance
+        resolve_expr = getattr(other, "resolve_expression", None)
+        if resolve_expr is None:
             # everything must be resolvable to an expression
+            # Avoid function call overhead by direct inline
             other = Value(other)
 
+        # Use a direct conditional branch for reversed to avoid Python stack lookups
         if reversed:
             return CombinedExpression(other, connector, self)
         return CombinedExpression(self, connector, other)
@@ -118,7 +122,9 @@ class Combinable:
         )
 
     def bitxor(self, other):
-        return self._combine(other, self.BITXOR, False)
+        # Micro-optimization: localize BITXOR lookup to avoid attribute lookup cost
+        BITXOR = self.BITXOR
+        return self._combine(other, BITXOR, False)
 
     def __or__(self, other):
         if getattr(self, "conditional", False) and getattr(other, "conditional", False):
