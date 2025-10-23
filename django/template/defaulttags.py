@@ -1256,24 +1256,24 @@ def regroup(parser, token):
 
         {% regroup musicians|dictsort:"instrument" by instrument as grouped %}
     """
+    # Avoid repeated indexing and string concatenation by unpacking once.
     bits = token.split_contents()
     if len(bits) != 6:
         raise TemplateSyntaxError("'regroup' tag takes five arguments")
-    target = parser.compile_filter(bits[1])
-    if bits[2] != "by":
+    # Unpack bits to avoid repeated lookups
+    _, target_bit, by_bit, expr_bit, as_bit, var_name = bits
+
+    if by_bit != "by":
         raise TemplateSyntaxError("second argument to 'regroup' tag must be 'by'")
-    if bits[4] != "as":
+    if as_bit != "as":
         raise TemplateSyntaxError("next-to-last argument to 'regroup' tag must be 'as'")
-    var_name = bits[5]
-    # RegroupNode will take each item in 'target', put it in the context under
-    # 'var_name', evaluate 'var_name'.'expression' in the current context, and
-    # group by the resulting value. After all items are processed, it will
-    # save the final result in the context under 'var_name', thus clearing the
-    # temporary values. This hack is necessary because the template engine
-    # doesn't provide a context-aware equivalent of Python's getattr.
-    expression = parser.compile_filter(
-        var_name + VARIABLE_ATTRIBUTE_SEPARATOR + bits[3]
-    )
+
+    target = parser.compile_filter(target_bit)
+
+    # Precompute the joined expression string for compile_filter once
+    expression_str = f"{var_name}{VARIABLE_ATTRIBUTE_SEPARATOR}{expr_bit}"
+    expression = parser.compile_filter(expression_str)
+
     return RegroupNode(target, expression, var_name)
 
 
