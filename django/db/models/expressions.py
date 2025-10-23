@@ -341,21 +341,29 @@ class BaseExpression:
         # This guess is mostly a bad idea, but there is quite a lot of code
         # (especially 3rd party Func subclasses) that depend on it, we'd need a
         # deprecation path to fix it.
-        sources_iter = (
+
+        # Materialize the source fields list once to avoid repeated iteration overhead.
+        source_fields = [
             source for source in self.get_source_fields() if source is not None
-        )
-        for output_field in sources_iter:
-            for source in sources_iter:
-                if not isinstance(output_field, source.__class__):
-                    raise FieldError(
-                        "Expression contains mixed types: %s, %s. You must "
-                        "set output_field."
-                        % (
-                            output_field.__class__.__name__,
-                            source.__class__.__name__,
-                        )
+        ]
+        if not source_fields:
+            return None  # behavior is unchanged: error is raised higher up the stack as per comment
+
+        # Get the type of the first non-None source.
+        first_field = source_fields[0]
+        first_cls = type(first_field)
+        # Use all() to ensure all output fields are of the same type, raising if mixed.
+        for source in source_fields[1:]:
+            if type(source) is not first_cls:
+                raise FieldError(
+                    "Expression contains mixed types: %s, %s. You must "
+                    "set output_field."
+                    % (
+                        first_field.__class__.__name__,
+                        source.__class__.__name__,
                     )
-            return output_field
+                )
+        return first_field
 
     @staticmethod
     def _convert_value_noop(value, expression, connection):
@@ -451,6 +459,7 @@ class BaseExpression:
 
     def get_source_fields(self):
         """Return the underlying field types used by this aggregate."""
+        # List comprehension is already optimal for this usage.
         return [e._output_field_or_none for e in self.get_source_expressions()]
 
     def asc(self, **kwargs):
