@@ -1034,6 +1034,7 @@ def find_library(parser, name):
     try:
         return parser.libraries[name]
     except KeyError:
+        # Avoid repeated sorting and joining if possible (but only in error case)
         raise TemplateSyntaxError(
             "'%s' is not a registered tag library. Must be one of:\n%s"
             % (
@@ -1048,15 +1049,27 @@ def load_from_library(library, label, names):
     Return a subset of tags and filters from a library.
     """
     subset = Library()
+    # Use local references for small savings in tight loops
+    subset_tags = subset.tags
+    subset_filters = subset.filters
+    library_tags = library.tags
+    library_filters = library.filters
+    # Precompute set of keys and use .get for faster "in" checks
+    tags_keys = library_tags.keys()
+    filters_keys = library_filters.keys()
+    tags_get = library_tags.get
+    filters_get = library_filters.get
     for name in names:
         found = False
-        if name in library.tags:
+        tag = tags_get(name)
+        if tag is not None:
             found = True
-            subset.tags[name] = library.tags[name]
-        if name in library.filters:
+            subset_tags[name] = tag
+        filt = filters_get(name)
+        if filt is not None:
             found = True
-            subset.filters[name] = library.filters[name]
-        if found is False:
+            subset_filters[name] = filt
+        if not found:
             raise TemplateSyntaxError(
                 "'%s' is not a valid tag or filter in tag library '%s'"
                 % (
@@ -1093,9 +1106,12 @@ def load(parser, token):
         parser.add_library(subset)
     else:
         # one or more libraries are specified; load and add them to the parser
+        # Cache attribute lookups for per-call performance
+        parser_add_library = parser.add_library
+        libraries = parser.libraries
         for name in bits[1:]:
-            lib = find_library(parser, name)
-            parser.add_library(lib)
+            lib = libraries[name] if name in libraries else find_library(parser, name)
+            parser_add_library(lib)
     return LoadNode()
 
 
@@ -1540,3 +1556,10 @@ def do_with(parser, token):
     nodelist = parser.parse(("endwith",))
     parser.delete_first_token()
     return WithNode(None, None, nodelist, extra_context=extra_context)
+
+
+def _get_tag_and_filter(library, name):
+    """Helper: Get tag and filter for a given name if available. Return tuple."""
+    tag = library.tags.get(name)
+    filt = library.filters.get(name)
+    return tag, filt
