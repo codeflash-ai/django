@@ -57,6 +57,10 @@ def get_tag_uri(url, date):
     return "tag:%s%s:%s/%s" % (bits.hostname, d, bits.path, bits.fragment)
 
 
+def _to_str(s):
+    return str(s) if s is not None else s
+
+
 class SyndicationFeed:
     "Base class for all syndication feeds. Subclasses should provide write()"
 
@@ -77,24 +81,22 @@ class SyndicationFeed:
         ttl=None,
         **kwargs,
     ):
-        def to_str(s):
-            return str(s) if s is not None else s
-
-        categories = categories and [str(c) for c in categories]
+        # Precompute and reuse conversions before dict construction for efficiency
+        categories_list = [str(c) for c in categories] if categories else ()
         self.feed = {
-            "title": to_str(title),
+            "title": _to_str(title),
             "link": iri_to_uri(link),
-            "description": to_str(description),
-            "language": to_str(language),
-            "author_email": to_str(author_email),
-            "author_name": to_str(author_name),
+            "description": _to_str(description),
+            "language": _to_str(language),
+            "author_email": _to_str(author_email),
+            "author_name": _to_str(author_name),
             "author_link": iri_to_uri(author_link),
-            "subtitle": to_str(subtitle),
-            "categories": categories or (),
+            "subtitle": _to_str(subtitle),
+            "categories": categories_list,
             "feed_url": iri_to_uri(feed_url),
-            "feed_copyright": to_str(feed_copyright),
+            "feed_copyright": _to_str(feed_copyright),
             "id": feed_guid or link,
-            "ttl": to_str(ttl),
+            "ttl": _to_str(ttl),
             **kwargs,
         }
         self.items = []
@@ -123,28 +125,28 @@ class SyndicationFeed:
         pubdate and updateddate, which are datetime.datetime objects, and
         enclosures, which is an iterable of instances of the Enclosure class.
         """
-
-        def to_str(s):
-            return str(s) if s is not None else s
-
-        categories = categories and [to_str(c) for c in categories]
+        categories_list = (
+            [str(c) if not isinstance(c, str) else c for c in categories]
+            if categories
+            else ()
+        )
         self.items.append(
             {
-                "title": to_str(title),
+                "title": _to_str(title),
                 "link": iri_to_uri(link),
-                "description": to_str(description),
-                "author_email": to_str(author_email),
-                "author_name": to_str(author_name),
+                "description": _to_str(description),
+                "author_email": _to_str(author_email),
+                "author_name": _to_str(author_name),
                 "author_link": iri_to_uri(author_link),
                 "pubdate": pubdate,
                 "updateddate": updateddate,
-                "comments": to_str(comments),
-                "unique_id": to_str(unique_id),
+                "comments": _to_str(comments),
+                "unique_id": _to_str(unique_id),
                 "unique_id_is_permalink": unique_id_is_permalink,
                 "enclosures": enclosures or (),
-                "categories": categories or (),
-                "item_copyright": to_str(item_copyright),
-                "ttl": to_str(ttl),
+                "categories": categories_list,
+                "item_copyright": _to_str(item_copyright),
+                "ttl": _to_str(ttl),
                 **kwargs,
             }
         )
