@@ -1288,19 +1288,21 @@ def resetcycle(parser, token):
     """
     args = token.split_contents()
 
-    if len(args) > 2:
+    args_len = len(args)
+    if args_len > 2:
         raise TemplateSyntaxError("%r tag accepts at most one argument." % args[0])
 
-    if len(args) == 2:
+    if args_len == 2:
         name = args[1]
-        try:
-            return ResetCycleNode(parser._named_cycle_nodes[name])
-        except (AttributeError, KeyError):
-            raise TemplateSyntaxError("Named cycle '%s' does not exist." % name)
-    try:
-        return ResetCycleNode(parser._last_cycle_node)
-    except AttributeError:
-        raise TemplateSyntaxError("No cycles in template.")
+        named_cycle_nodes = getattr(parser, "_named_cycle_nodes", None)
+        if named_cycle_nodes is not None and name in named_cycle_nodes:
+            return ResetCycleNode(named_cycle_nodes[name])
+        raise TemplateSyntaxError("Named cycle '%s' does not exist." % name)
+
+    last_cycle_node = getattr(parser, "_last_cycle_node", None)
+    if last_cycle_node is not None:
+        return ResetCycleNode(last_cycle_node)
+    raise TemplateSyntaxError("No cycles in template.")
 
 
 @register.tag
