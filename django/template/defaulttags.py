@@ -34,7 +34,6 @@ from .base import (
     render_value_in_context,
     token_kwargs,
 )
-from .context import Context
 from .defaultfilters import date
 from .library import Library
 from .smartif import IfParser, Literal
@@ -1460,7 +1459,7 @@ def verbatim(parser, token):
     """
     nodelist = parser.parse(("endverbatim",))
     parser.delete_first_token()
-    return VerbatimNode(nodelist.render(Context()))
+    return VerbatimNode(nodelist)
 
 
 @register.tag
