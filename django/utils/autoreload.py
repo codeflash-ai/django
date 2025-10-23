@@ -69,7 +69,7 @@ def check_errors(fn):
 
             if getattr(ev, "filename", None) is None:
                 # get the filename from the last item in the stack
-                filename = traceback.extract_tb(tb)[-1][0]
+                filename = traceback.extract_tb(tb, limit=1)[0][0]
             else:
                 filename = ev.filename
 
