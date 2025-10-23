@@ -21,6 +21,12 @@ from django.dispatch import Signal
 from django.utils.functional import cached_property
 from django.utils.version import get_version_tuple
 
+_SIGTTOU = getattr(signal, "SIGTTOU", None)
+
+_SIG_IGN = getattr(signal, "SIG_IGN", None)
+
+_has_SIGTTOU = _SIGTTOU is not None
+
 autoreload_started = Signal()
 file_changed = Signal()
 
@@ -92,18 +98,23 @@ def ensure_echo_on():
     Ensure that echo mode is enabled. Some tools such as PDB disable
     it which causes usability issues after reload.
     """
-    if not termios or not sys.stdin.isatty():
+    # Cache as local variables for faster lookups
+    _termios = termios
+    _sys_stdin = sys.stdin
+    if not _termios or not _sys_stdin.isatty():  # short circuit if not available/tty
         return
-    attr_list = termios.tcgetattr(sys.stdin)
-    if not attr_list[3] & termios.ECHO:
-        attr_list[3] |= termios.ECHO
-        if hasattr(signal, "SIGTTOU"):
-            old_handler = signal.signal(signal.SIGTTOU, signal.SIG_IGN)
+    attr_list = _termios.tcgetattr(_sys_stdin)
+    flags = attr_list[3]
+    echo = _termios.ECHO
+    if not flags & echo:
+        attr_list[3] = flags | echo  # combine for better branch prediction
+        if _has_SIGTTOU:
+            old_handler = signal.signal(_SIGTTOU, _SIG_IGN)
         else:
             old_handler = None
-        termios.tcsetattr(sys.stdin, termios.TCSANOW, attr_list)
+        _termios.tcsetattr(_sys_stdin, _termios.TCSANOW, attr_list)
         if old_handler is not None:
-            signal.signal(signal.SIGTTOU, old_handler)
+            signal.signal(_SIGTTOU, old_handler)
 
 
 def iter_all_python_module_files():
