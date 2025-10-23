@@ -1363,10 +1363,11 @@ def templatetag(parser, token):
     if len(bits) != 2:
         raise TemplateSyntaxError("'templatetag' statement takes one argument")
     tag = bits[1]
-    if tag not in TemplateTagNode.mapping:
+    mapping = TemplateTagNode.mapping
+    if tag not in mapping:
         raise TemplateSyntaxError(
             "Invalid templatetag argument: '%s'."
-            " Must be one of: %s" % (tag, list(TemplateTagNode.mapping))
+            " Must be one of: %s" % (tag, ", ".join(mapping))
         )
     return TemplateTagNode(tag)
 
