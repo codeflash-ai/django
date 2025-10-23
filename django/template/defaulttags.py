@@ -1,6 +1,5 @@
 """Default tags used by the template system, available to all templates."""
 
-import re
 import sys
 import warnings
 from collections import namedtuple
@@ -851,7 +850,11 @@ def do_for(parser, token):
         )
 
     invalid_chars = frozenset((" ", '"', "'", FILTER_SEPARATOR))
-    loopvars = re.split(r" *, *", " ".join(bits[1:in_index]))
+    loopvar_str = " ".join(bits[1:in_index])
+    if "," in loopvar_str:
+        loopvars = [var.strip() for var in loopvar_str.split(",")]
+    else:
+        loopvars = [loopvar_str.strip()]
     for var in loopvars:
         if not var or not invalid_chars.isdisjoint(var):
             raise TemplateSyntaxError(
