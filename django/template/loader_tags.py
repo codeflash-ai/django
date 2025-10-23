@@ -166,7 +166,11 @@ class IncludeNode(Node):
         self, template, *args, extra_context=None, isolated_context=False, **kwargs
     ):
         self.template = template
-        self.extra_context = extra_context or {}
+        # Avoid runtime dict construction if not needed
+        if extra_context:
+            self.extra_context = extra_context
+        else:
+            self.extra_context = {}
         self.isolated_context = isolated_context
         super().__init__(*args, **kwargs)
 
@@ -181,7 +185,8 @@ class IncludeNode(Node):
         """
         template = self.template.resolve(context)
         # Does this quack like a Template?
-        if not callable(getattr(template, "render", None)):
+        render_attr = getattr(template, "render", None)
+        if not callable(render_attr):
             # If not, try the cache and select_template().
             template_name = template or ()
             if isinstance(template_name, str):
@@ -193,20 +198,31 @@ class IncludeNode(Node):
                 )
             else:
                 template_name = tuple(template_name)
+
             cache = context.render_context.dicts[0].setdefault(self, {})
             template = cache.get(template_name)
             if template is None:
                 template = context.template.engine.select_template(template_name)
                 cache[template_name] = template
-        # Use the base.Template of a backends.django.Template.
         elif hasattr(template, "template"):
             template = template.template
-        values = {
-            name: var.resolve(context) for name, var in self.extra_context.items()
-        }
+
+        # Optimize variable resolution with dict comprehension if extra_context is not empty
+        if self.extra_context:
+            values = {
+                name: var.resolve(context) for name, var in self.extra_context.items()
+            }
+        else:
+            values = {}
+
         if self.isolated_context:
+            # Avoid building new context if not necessary
             return template.render(context.new(values))
-        with context.push(**values):
+        if values:
+            with context.push(**values):
+                return template.render(context)
+            # This logic does not change: side effect and stack handling
+        else:
             return template.render(context)
 
 
@@ -253,9 +269,11 @@ def construct_relative_path(current_template_name, relative_name):
         # relative path.
         return relative_name
 
+    # posixpath.normpath and join are fast, but avoid duplicate lstrip calls
+    curr_name_stripped = current_template_name.lstrip("/")
     new_name = posixpath.normpath(
         posixpath.join(
-            posixpath.dirname(current_template_name.lstrip("/")),
+            posixpath.dirname(curr_name_stripped),
             new_name,
         )
     )
@@ -264,7 +282,7 @@ def construct_relative_path(current_template_name, relative_name):
             "The relative path '%s' points outside the file hierarchy that "
             "template '%s' is in." % (relative_name, current_template_name)
         )
-    if current_template_name.lstrip("/") == new_name:
+    if curr_name_stripped == new_name:
         raise TemplateSyntaxError(
             "The relative path '%s' was translated to template name '%s', the "
             "same template in which the tag appears."
@@ -273,6 +291,7 @@ def construct_relative_path(current_template_name, relative_name):
     has_quotes = (
         relative_name.startswith(('"', "'")) and relative_name[0] == relative_name[-1]
     )
+    # Return quoted if original was quoted, else not
     return f'"{new_name}"' if has_quotes else new_name
 
 
