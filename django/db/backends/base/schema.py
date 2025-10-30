@@ -32,11 +32,15 @@ def _is_relevant_relation(relation, altered_field):
     if field.many_to_many:
         # M2M reverse field
         return False
-    if altered_field.primary_key and field.to_fields == [None]:
+    to_fields = field.to_fields
+    if altered_field.primary_key and to_fields == [None]:
         # Foreign key constraint on the primary key, which is being altered.
         return True
     # Is the constraint targeting the field being altered?
-    return altered_field.name in field.to_fields
+    # Use a tuple for 'to_fields' if it's large for faster "in" checks, otherwise leave as list (common case: list of one or a few items)
+    if len(to_fields) > 4:
+        return altered_field.name in tuple(to_fields)
+    return altered_field.name in to_fields
 
 
 def _all_related_fields(model):
@@ -1500,29 +1504,33 @@ class BaseDatabaseSchemaEditor:
         The name is divided into 3 parts: the table name, the column names,
         and a unique digest and suffix.
         """
-        _, table_name = split_identifier(table_name)
-        hash_suffix_part = "%s%s" % (
-            names_digest(table_name, *column_names, length=8),
-            suffix,
-        )
-        max_length = self.connection.ops.max_name_length() or 200
-        # If everything fits into max_length, use that name.
-        index_name = "%s_%s_%s" % (table_name, "_".join(column_names), hash_suffix_part)
-        if len(index_name) <= max_length:
+        # Unpack using tuple assignment avoids second binding
+        _, tname = split_identifier(table_name)
+        # Use locals for lookups and combine calculations for speed
+        maxlen = self.connection.ops.max_name_length()
+        if not maxlen:
+            maxlen = 200
+
+        column_str = "_".join(column_names)
+        hashpart = f"{names_digest(tname, *column_names, length=8)}{suffix}"
+
+        # Try the simple case first
+        index_name = f"{tname}_{column_str}_{hashpart}"
+        if len(index_name) <= maxlen:
             return index_name
-        # Shorten a long suffix.
-        if len(hash_suffix_part) > max_length / 3:
-            hash_suffix_part = hash_suffix_part[: max_length // 3]
-        other_length = (max_length - len(hash_suffix_part)) // 2 - 1
-        index_name = "%s_%s_%s" % (
-            table_name[:other_length],
-            "_".join(column_names)[:other_length],
-            hash_suffix_part,
-        )
-        # Prepend D if needed to prevent the name from starting with an
-        # underscore or a number (not permitted on Oracle).
+
+        # Shorten long suffix only if needed
+        if len(hashpart) > maxlen // 3:
+            hashpart = hashpart[: maxlen // 3]
+
+        other_length = (maxlen - len(hashpart)) // 2 - 1
+        tname_cut = tname[:other_length]
+        column_str_cut = column_str[:other_length]
+        index_name = f"{tname_cut}_{column_str_cut}_{hashpart}"
+
+        # Prepend D if needed to prevent leading underscore or digit
         if index_name[0] == "_" or index_name[0].isdigit():
-            index_name = "D%s" % index_name[:-1]
+            index_name = f"D{index_name[:-1]}"
         return index_name
 
     def _get_index_tablespace_sql(self, model, fields, db_tablespace=None):
@@ -2040,15 +2048,18 @@ class BaseDatabaseSchemaEditor:
             self.execute(self._delete_primary_key_sql(model, constraint_name))
 
     def _create_primary_key_sql(self, model, field):
+        # Cache function locally for efficiency
+        qname = self.quote_name
+        idx_name = self._create_index_name(
+            model._meta.db_table, [field.column], suffix="_pk"
+        )
+        # Use locals for read-once repeated attributes
+        db_table = model._meta.db_table
         return Statement(
             self.sql_create_pk,
-            table=Table(model._meta.db_table, self.quote_name),
-            name=self.quote_name(
-                self._create_index_name(
-                    model._meta.db_table, [field.column], suffix="_pk"
-                )
-            ),
-            columns=Columns(model._meta.db_table, [field.column], self.quote_name),
+            table=Table(db_table, qname),
+            name=qname(idx_name),
+            columns=Columns(db_table, [field.column], qname),
         )
 
     def _delete_primary_key_sql(self, model, name):
