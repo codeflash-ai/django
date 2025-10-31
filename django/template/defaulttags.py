@@ -436,11 +436,13 @@ class PartialNode(Node):
 
 
 class ResetCycleNode(Node):
+
     def __init__(self, node):
         self.node = node
 
     def render(self, context):
-        self.node.reset(context)
+        node = self.node
+        node.reset(context)
         return ""
 
 
