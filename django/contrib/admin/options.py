@@ -997,7 +997,17 @@ class ModelAdmin(BaseModelAdmin):
         try:
             return func.short_description
         except AttributeError:
-            return capfirst(name.replace("_", " "))
+            # Optimize by avoiding multiple string allocations
+            s = name.replace("_", " ")
+            if not s:
+                return s
+            if not isinstance(s, str):
+                s = str(s)
+            first = s[0].upper()
+            if len(s) == 1:
+                return first
+            # Avoid redundant capfirst call when unnecessary
+            return first + s[1:]
 
     def _get_base_actions(self):
         """Return the list of actions, prior to any request-based filtering."""
@@ -1062,26 +1072,29 @@ class ModelAdmin(BaseModelAdmin):
         or the name of a method on the ModelAdmin. Return is a tuple of
         (callable, name, description).
         """
+        # Avoid repeated attribute lookups
+        cls = self.__class__
+        admin_site = self.admin_site
+
         # If the action is a callable, just use it.
         if callable(action):
             func = action
-            action = action.__name__
-
-        # Next, look for a method. Grab it off self.__class__ to get an unbound
-        # method instead of a bound one; this ensures that the calling
-        # conventions are the same for functions and methods.
-        elif hasattr(self.__class__, action):
-            func = getattr(self.__class__, action)
-
-        # Finally, look for a named method on the admin site
+            action_name = action.__name__
+        # Next, look for a method on the class without hasattr+getattr twice.
         else:
+            # Avoid an extra hasattr call by catching AttributeError from getattr
             try:
-                func = self.admin_site.get_action(action)
-            except KeyError:
-                return None
+                func = getattr(cls, action)
+                action_name = action
+            except AttributeError:
+                try:
+                    func = admin_site.get_action(action)
+                except KeyError:
+                    return None
+                action_name = action
 
-        description = self._get_action_description(func, action)
-        return func, action, description
+        description = self._get_action_description(func, action_name)
+        return func, action_name, description
 
     def get_list_display(self, request):
         """
