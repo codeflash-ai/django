@@ -44,13 +44,13 @@ def handle_extensions(extensions):
     >>> handle_extensions(['.html, txt,.tpl'])
     {'.html', '.tpl', '.txt'}
     """
-    ext_list = []
+    ext_set = set()
     for ext in extensions:
-        ext_list.extend(ext.replace(" ", "").split(","))
-    for i, ext in enumerate(ext_list):
-        if not ext.startswith("."):
-            ext_list[i] = ".%s" % ext_list[i]
-    return set(ext_list)
+        for e in ext.replace(" ", "").split(","):
+            if not e.startswith("."):
+                e = "." + e
+            ext_set.add(e)
+    return ext_set
 
 
 def find_command(cmd, path=None, pathext=None):
