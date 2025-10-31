@@ -1002,35 +1002,53 @@ class ModelAdmin(BaseModelAdmin):
     def _get_base_actions(self):
         """Return the list of actions, prior to any request-based filtering."""
         actions = []
-        base_actions = (self.get_action(action) for action in self.actions or [])
-        # get_action might have returned None, so filter any of those out.
-        base_actions = [action for action in base_actions if action]
-        base_action_names = {name for _, name, _ in base_actions}
+        # Materialize base_actions as a list once to avoid repeated generator evaluations
+        actions_iter = self.actions or []
+        base_actions = []
+        base_action_names = set()
+        get_action = self.get_action  # Localize for loop
+        append_base = base_actions.append
+        add_base_name = base_action_names.add
 
-        # Gather actions from the admin site first
-        for name, func in self.admin_site.actions:
-            if name in base_action_names:
+        for action in actions_iter:
+            act = get_action(action)
+            if act:
+                append_base(act)
+                add_base_name(act[1])
+
+        # Use set lookup to skip duplicates
+        base_action_names_lookup = base_action_names
+        site_actions = self.admin_site.actions
+        append = actions.append
+        # Pre-bind description generator for tight loop
+        get_description = self._get_action_description
+
+        for name, func in site_actions:
+            if name in base_action_names_lookup:
                 continue
-            description = self._get_action_description(func, name)
-            actions.append((func, name, description))
-        # Add actions from this ModelAdmin.
+            description = get_description(func, name)
+            append((func, name, description))
         actions.extend(base_actions)
         return actions
 
     def _filter_actions_by_permissions(self, request, actions):
         """Filter out any actions that the user doesn't have access to."""
         filtered_actions = []
+        append = filtered_actions.append
+
         for action in actions:
-            callable = action[0]
-            if not hasattr(callable, "allowed_permissions"):
-                filtered_actions.append(action)
+            callable_obj = action[0]
+            # Fast path for most actions without allowed_permissions
+            allowed = getattr(callable_obj, "allowed_permissions", None)
+            if allowed is None:
+                append(action)
                 continue
-            permission_checks = (
-                getattr(self, "has_%s_permission" % permission)
-                for permission in callable.allowed_permissions
-            )
-            if any(has_permission(request) for has_permission in permission_checks):
-                filtered_actions.append(action)
+            # Pre-fetch method references for permissions, shortcut if any True
+            for permission in allowed:
+                has_perm_func = getattr(self, f"has_{permission}_permission")
+                if has_perm_func(request):
+                    append(action)
+                    break
         return filtered_actions
 
     def get_actions(self, request):
@@ -1042,8 +1060,11 @@ class ModelAdmin(BaseModelAdmin):
         # this page.
         if self.actions is None or IS_POPUP_VAR in request.GET:
             return {}
-        actions = self._filter_actions_by_permissions(request, self._get_base_actions())
-        return {name: (func, name, desc) for func, name, desc in actions}
+        # NOTE: Tighten call chain by reusing intermediate values and minimizing list copying.
+        actions = self._get_base_actions()
+        filtered = self._filter_actions_by_permissions(request, actions)
+        # Dict comp is optimal for this conversion.
+        return {name: (func, name, desc) for func, name, desc in filtered}
 
     def get_action_choices(self, request, default_choices=models.BLANK_CHOICE_DASH):
         """
