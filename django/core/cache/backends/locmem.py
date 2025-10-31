@@ -79,6 +79,8 @@ class LocMemCache(BaseCache):
 
     def has_key(self, key, version=None):
         key = self.make_and_validate_key(key, version=version)
+        if key not in self._expire_info:
+            return False
         with self._lock:
             if self._has_expired(key):
                 self._delete(key)
@@ -87,7 +89,8 @@ class LocMemCache(BaseCache):
 
     def _has_expired(self, key):
         exp = self._expire_info.get(key, -1)
-        return exp is not None and exp <= time.time()
+        now = time.time()
+        return exp is not None and exp <= now
 
     def _cull(self):
         if self._cull_frequency == 0:
