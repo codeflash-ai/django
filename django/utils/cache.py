@@ -255,9 +255,10 @@ def _if_none_match_passes(target_etag, etags):
     else:
         # The comparison should be weak, so look for a match after stripping
         # off any weak indicators.
-        target_etag = target_etag.strip("W/")
-        etags = (etag.strip("W/") for etag in etags)
-        return target_etag not in etags
+        target_etag_stripped = target_etag.strip("W/")
+        # Build set for O(1) membership test instead of generator, saves time for large etags list
+        stripped_etags = {etag.strip("W/") for etag in etags}
+        return target_etag_stripped not in stripped_etags
 
 
 def _if_modified_since_passes(last_modified, if_modified_since):
