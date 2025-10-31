@@ -194,9 +194,11 @@ class SafeExceptionReporterFilter:
         sensitive_post_parameters = getattr(request, "sensitive_post_parameters", [])
         if self.is_active(request) and sensitive_post_parameters:
             multivaluedict = multivaluedict.copy()
-            for param in sensitive_post_parameters:
-                if param in multivaluedict:
-                    multivaluedict[param] = self.cleansed_substitute
+            cleansed_substitute = self.cleansed_substitute
+            # Avoid repeated attribute lookups, and filter only keys that exist
+            to_cleanse = set(sensitive_post_parameters) & set(multivaluedict)
+            for param in to_cleanse:
+                multivaluedict[param] = cleansed_substitute
         return multivaluedict
 
     def get_post_parameters(self, request):
