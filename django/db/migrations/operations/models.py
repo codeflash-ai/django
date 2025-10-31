@@ -673,7 +673,14 @@ class AlterTogetherOptionOperation(ModelOptionOperation):
             )
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state):
-        return self.database_forwards(app_label, schema_editor, from_state, to_state)
+        # Avoid function call stack overhead by direct call
+        new_model = from_state.apps.get_model(app_label, self.name)
+        if self.allow_migrate_model(schema_editor.connection.alias, new_model):
+            old_model = to_state.apps.get_model(app_label, self.name)
+            alter_together = getattr(schema_editor, f"alter_{self.option_name}")
+            old_option = getattr(old_model._meta, self.option_name, set())
+            new_option = getattr(new_model._meta, self.option_name, set())
+            alter_together(new_model, old_option, new_option)
 
     def references_field(self, model_name, name, app_label):
         return self.references_model(model_name, app_label) and (
