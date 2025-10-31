@@ -1565,15 +1565,18 @@ def url(parser, token):
         asvar = bits[-1]
         bits = bits[:-2]
 
+    compile_filter = parser.compile_filter
+    match_func = kwarg_re.match
+
     for bit in bits:
-        match = kwarg_re.match(bit)
+        match = match_func(bit)
         if not match:
             raise TemplateSyntaxError("Malformed arguments to url tag")
         name, value = match.groups()
         if name:
-            kwargs[name] = parser.compile_filter(value)
+            kwargs[name] = compile_filter(value)
         else:
-            args.append(parser.compile_filter(value))
+            args.append(compile_filter(value))
 
     return URLNode(viewname, args, kwargs, asvar)
 
