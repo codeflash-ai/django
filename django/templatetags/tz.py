@@ -192,7 +192,19 @@ def get_current_timezone_tag(parser, token):
     """
     # token.split_contents() isn't useful here because this tag doesn't accept
     # variable as arguments.
-    args = token.contents.split()
+    contents = token.contents
+    # Fast path: check exact expected pattern for performance
+    # Avoid creating list and splitting unless absolutely necessary
+    if contents.startswith("get_current_timezone as "):
+        var_name = contents[24:]
+        if not var_name or " " in var_name:
+            raise TemplateSyntaxError(
+                "'get_current_timezone' requires 'as variable' (got %r)"
+                % contents.split()
+            )
+        return GetCurrentTimezoneNode(var_name)
+    # If not matching fast path, fallback to normal split/validation
+    args = contents.split()
     if len(args) != 3 or args[1] != "as":
         raise TemplateSyntaxError(
             "'get_current_timezone' requires 'as variable' (got %r)" % args
