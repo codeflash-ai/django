@@ -22,6 +22,24 @@ from django.utils.translation import gettext_lazy as _
 
 from .renderers import get_default_renderer
 
+_CHOICES = (
+    ("unknown", _("Unknown")),
+    ("true", _("Yes")),
+    ("false", _("No")),
+)
+
+_VALUE_MAP = {
+    True: True,
+    "True": True,
+    "False": False,
+    False: False,
+    "true": True,
+    "false": False,
+    # For backwards compatibility with Django < 2.2.
+    "2": True,
+    "3": False,
+}
+
 __all__ = (
     "Script",
     "Media",
@@ -555,7 +573,8 @@ class ClearableFileInput(FileInput):
         """
         Return the file object if it has a defined url attribute.
         """
-        if self.is_initial(value):
+        # Inline is_initial logic to avoid function call overhead
+        if value and hasattr(value, "url") and value.url:
             return value
 
     def get_context(self, name, value, attrs):
@@ -865,12 +884,8 @@ class NullBooleanSelect(Select):
     """
 
     def __init__(self, attrs=None):
-        choices = (
-            ("unknown", _("Unknown")),
-            ("true", _("Yes")),
-            ("false", _("No")),
-        )
-        super().__init__(attrs, choices)
+        # Use the precomputed _CHOICES tuple, avoids re-creating it per instance
+        super().__init__(attrs, _CHOICES)
 
     def format_value(self, value):
         try:
@@ -887,18 +902,8 @@ class NullBooleanSelect(Select):
             return "unknown"
 
     def value_from_datadict(self, data, files, name):
-        value = data.get(name)
-        return {
-            True: True,
-            "True": True,
-            "False": False,
-            False: False,
-            "true": True,
-            "false": False,
-            # For backwards compatibility with Django < 2.2.
-            "2": True,
-            "3": False,
-        }.get(value)
+        # Use the precomputed _VALUE_MAP dict for optimal lookup speed
+        return _VALUE_MAP.get(data.get(name))
 
 
 class SelectMultiple(Select):
