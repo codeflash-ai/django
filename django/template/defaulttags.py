@@ -1080,14 +1080,19 @@ def load_from_library(library, label, names):
     Return a subset of tags and filters from a library.
     """
     subset = Library()
+    tags = library.tags
+    filters = library.filters
+    subset_tags = subset.tags
+    subset_filters = subset.filters
+
     for name in names:
         found = False
-        if name in library.tags:
+        if name in tags:
             found = True
-            subset.tags[name] = library.tags[name]
-        if name in library.filters:
+            subset_tags[name] = tags[name]
+        if name in filters:
             found = True
-            subset.filters[name] = library.filters[name]
+            subset_filters[name] = filters[name]
         if found is False:
             raise TemplateSyntaxError(
                 "'%s' is not a valid tag or filter in tag library '%s'"
