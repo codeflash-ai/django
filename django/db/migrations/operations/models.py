@@ -623,7 +623,21 @@ class AlterModelTableComment(ModelOptionOperation):
             )
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state):
-        return self.database_forwards(app_label, schema_editor, from_state, to_state)
+        # Avoid function call overhead by directly referencing the implementation
+        to_apps = to_state.apps
+        from_apps = from_state.apps
+        model_name = self.name
+        new_model = to_apps.get_model(app_label, model_name)
+
+        if self.allow_migrate_model(schema_editor.connection.alias, new_model):
+            old_model = from_apps.get_model(app_label, model_name)
+            new_meta = new_model._meta
+            old_meta = old_model._meta
+            schema_editor.alter_db_table_comment(
+                new_model,
+                old_meta.db_table_comment,
+                new_meta.db_table_comment,
+            )
 
     def describe(self):
         return f"Alter {self.name} table comment"
