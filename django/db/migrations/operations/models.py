@@ -562,23 +562,36 @@ class AlterModelTable(ModelOptionOperation):
         state.alter_model_options(app_label, self.name_lower, {"db_table": self.table})
 
     def database_forwards(self, app_label, schema_editor, from_state, to_state):
-        new_model = to_state.apps.get_model(app_label, self.name)
+        # Cache lookups and attribute access to minimize Python-level overhead
+        get_model = to_state.apps.get_model
+        new_model = get_model(app_label, self.name)
         if self.allow_migrate_model(schema_editor.connection.alias, new_model):
             old_model = from_state.apps.get_model(app_label, self.name)
-            schema_editor.alter_db_table(
+            new_model_meta = new_model._meta
+            old_model_meta = old_model._meta
+            schema_editor_alter_db_table = schema_editor.alter_db_table
+
+            schema_editor_alter_db_table(
                 new_model,
-                old_model._meta.db_table,
-                new_model._meta.db_table,
+                old_model_meta.db_table,
+                new_model_meta.db_table,
             )
-            # Rename M2M fields whose name is based on this model's db_table
-            for old_field, new_field in zip(
-                old_model._meta.local_many_to_many, new_model._meta.local_many_to_many
-            ):
-                if new_field.remote_field.through._meta.auto_created:
-                    schema_editor.alter_db_table(
-                        new_field.remote_field.through,
-                        old_field.remote_field.through._meta.db_table,
-                        new_field.remote_field.through._meta.db_table,
+
+            old_m2m = old_model_meta.local_many_to_many
+            new_m2m = new_model_meta.local_many_to_many
+
+            # Prepare and reuse attribute access locally for loop performance
+            for old_field, new_field in zip(old_m2m, new_m2m):
+                rf_new = new_field.remote_field
+                rf_old = old_field.remote_field
+                through_new = rf_new.through
+                through_old = rf_old.through
+                through_new_meta = through_new._meta
+                if through_new_meta.auto_created:
+                    schema_editor_alter_db_table(
+                        through_new,
+                        through_old._meta.db_table,
+                        through_new_meta.db_table,
                     )
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state):
