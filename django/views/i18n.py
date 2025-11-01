@@ -14,6 +14,8 @@ from django.utils.translation import check_for_language, get_language
 from django.utils.translation.trans_real import DjangoTranslation
 from django.views.generic import View
 
+_template_dir = Path(__file__).parent / "templates"
+
 LANGUAGE_QUERY_PARAMETER = "language"
 
 
@@ -24,7 +26,7 @@ def builtin_template_path(name):
     Avoid calling this function at the module level or in a class-definition
     because __file__ may not exist, e.g. in frozen environments.
     """
-    return Path(__file__).parent / "templates" / name
+    return _template_dir / name
 
 
 def set_language(request):
