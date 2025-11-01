@@ -555,7 +555,8 @@ class ClearableFileInput(FileInput):
         """
         Return the file object if it has a defined url attribute.
         """
-        if self.is_initial(value):
+        # Inline is_initial logic to avoid function call overhead
+        if value and hasattr(value, "url") and value.url:
             return value
 
     def get_context(self, name, value, attrs):
@@ -593,10 +594,9 @@ class ClearableFileInput(FileInput):
         return upload
 
     def value_omitted_from_data(self, data, files, name):
-        return (
-            super().value_omitted_from_data(data, files, name)
-            and self.clear_checkbox_name(name) not in data
-        )
+        # Inline super() call for potentially faster access, avoid method dispatch stack
+        omitted = name not in files
+        return omitted and self.clear_checkbox_name(name) not in data
 
 
 class Textarea(Widget):
