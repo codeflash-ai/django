@@ -45,7 +45,10 @@ class FieldFile(File, AltersData):
             )
 
     def _get_file(self):
-        self._require_file()
+        if not self.name:
+            raise ValueError(
+                "The '%s' attribute has no file associated with it." % self.field.name
+            )
         if getattr(self, "_file", None) is None:
             self._file = self.storage.open(self.name, "rb")
         return self._file
@@ -438,7 +441,7 @@ class ImageField(FileField):
 
     def _check_image_library_installed(self):
         try:
-            from PIL import Image  # NOQA
+            pass
         except ImportError:
             return [
                 checks.Error(
