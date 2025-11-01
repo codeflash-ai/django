@@ -32,11 +32,15 @@ def _is_relevant_relation(relation, altered_field):
     if field.many_to_many:
         # M2M reverse field
         return False
-    if altered_field.primary_key and field.to_fields == [None]:
+    to_fields = field.to_fields
+    if altered_field.primary_key and to_fields == [None]:
         # Foreign key constraint on the primary key, which is being altered.
         return True
     # Is the constraint targeting the field being altered?
-    return altered_field.name in field.to_fields
+    # Use a tuple for 'to_fields' if it's large for faster "in" checks, otherwise leave as list (common case: list of one or a few items)
+    if len(to_fields) > 4:
+        return altered_field.name in tuple(to_fields)
+    return altered_field.name in to_fields
 
 
 def _all_related_fields(model):
@@ -188,19 +192,24 @@ class BaseDatabaseSchemaEditor:
             )
         # Account for non-string statement objects.
         sql = str(sql)
-        # Log the command we're running, then run it
-        logger.debug(
-            "%s; (params %r)", sql, params, extra={"params": params, "sql": sql}
-        )
+
+        # Save rstrip for later to avoid doing twice if not needed
+        # Fast path for collect_sql: avoid extra rstrip and endswith if not needed
         if self.collect_sql:
-            ending = "" if sql.rstrip().endswith(";") else ";"
-            if params is not None:
+            stripped_sql = sql.rstrip()
+            ending = "" if stripped_sql.endswith(";") else ";"
+            if params:
+                # Avoid tuple/map creation if params is empty (common case)
                 self.collected_sql.append(
                     (sql % tuple(map(self.quote_value, params))) + ending
                 )
             else:
                 self.collected_sql.append(sql + ending)
         else:
+            # Only log if not collecting SQL to minimize expensive log string formatting
+            logger.debug(
+                "%s; (params %r)", sql, params, extra={"params": params, "sql": sql}
+            )
             with self.connection.cursor() as cursor:
                 cursor.execute(sql, params)
 
