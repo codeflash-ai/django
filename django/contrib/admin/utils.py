@@ -106,20 +106,26 @@ def flatten(fields):
     """
     Return a list which is a single level of flattening of the original list.
     """
+    # Optimize loop branch prediction and reduce local lookups
     flat = []
+    append = flat.append
+    extend = flat.extend
+    is_list_or_tuple = (list, tuple)
     for field in fields:
-        if isinstance(field, (list, tuple)):
-            flat.extend(field)
+        if isinstance(field, is_list_or_tuple):
+            extend(field)
         else:
-            flat.append(field)
+            append(field)
     return flat
 
 
 def flatten_fieldsets(fieldsets):
     """Return a list of field names from an admin fieldsets structure."""
+    # Avoid repeated lookups for flatten; collect results efficiently
     field_names = []
+    extend = field_names.extend
     for name, opts in fieldsets:
-        field_names.extend(flatten(opts["fields"]))
+        extend(flatten(opts["fields"]))
     return field_names
 
 
