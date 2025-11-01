@@ -555,7 +555,8 @@ class ClearableFileInput(FileInput):
         """
         Return the file object if it has a defined url attribute.
         """
-        if self.is_initial(value):
+        # Inline is_initial logic to avoid function call overhead
+        if value and hasattr(value, "url") and value.url:
             return value
 
     def get_context(self, name, value, attrs):
@@ -666,15 +667,19 @@ class CheckboxInput(Input):
         return super().get_context(name, value, attrs)
 
     def value_from_datadict(self, data, files, name):
-        if name not in data:
+        try:
+            value = data[name]
+        except KeyError:
             # A missing value means False because HTML form submission does not
             # send results for unselected checkboxes.
             return False
-        value = data.get(name)
         # Translate true and false strings to boolean values.
-        values = {"true": True, "false": False}
         if isinstance(value, str):
-            value = values.get(value.lower(), value)
+            low = value.lower()
+            if low == "true":
+                return True
+            if low == "false":
+                return False
         return bool(value)
 
     def value_omitted_from_data(self, data, files, name):
